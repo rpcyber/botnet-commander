@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 import time
 from math import pow
-import threading
 import configparser
 from socket import socket, AF_INET, SOCK_STREAM
 
@@ -23,20 +22,22 @@ def load_conf():
         nidle_time = int(config_parser.get("CORE", "NIDLE_TIME"))
         idle_timeout = int(config_parser.get("CORE", "IDLE_TIMEOUT"))
         conn_buff = int((config_parser.get("CORE", "CONN_BUFF")))
+        recv_tout = int((config_parser.get("CORE", "RECV_TIMEOUT")))
     except Exception as err:
         print("Error initializing CORE, bot agent not started because config file could not be loaded. Unexpected "
               "exception occurred: {}".format(err))
         exit(5)
-    return host, port, max_reconn, conn_buff, idle_time, nidle_time, idle_timeout
+    return host, port, max_reconn, conn_buff, idle_time, nidle_time, idle_timeout, recv_tout
 
 
 class BotAgent:
-    def __init__(self, host, port, max_reconn, idle_time, nidle_time, idle_timeout, conn_buff):
+    def __init__(self, host, port, max_reconn, idle_time, nidle_time, idle_timeout, conn_buff, recv_tout):
         self.host = host
         self.port = port
         self.max_reconn = max_reconn
         self.idle = False
         self.last_online = time.time()
+        self.recv_tout = recv_tout
         self.idle_t = idle_time
         self.nidle_t = nidle_time
         self.idle_tout = idle_timeout
@@ -62,6 +63,8 @@ class BotAgent:
 
     def __tcp_handshake(self):
         try:
+            self.sock.close()
+            self.sock = socket(AF_INET, SOCK_STREAM)
             self.sock.connect((self.host, self.port))
         except Exception as err:
             print("Unexpected error occurred when connecting to commander: {}".format(err))
@@ -81,9 +84,14 @@ class BotAgent:
 
     def __run(self):
         while True:
+            data = ""
             self.__tcp_handshake()
-            self.sock.setblocking(False)
-            data = self.sock.recv(self.conn_buff)
+            self.sock.settimeout(self.recv_tout)
+            try:
+                data = self.sock.recv(self.conn_buff)
+            except Exception as err:
+                print(f"Timeout exceeded while waiting for data from commander, error: {err}")
+                self.__run()
             # Waiting time for checking if commander is sending data
             if time.time() - self.last_online > self.idle_tout:
                 self.idle = True
@@ -93,14 +101,12 @@ class BotAgent:
                 time.sleep(self.nidle_t)
             if data:
                 self.__process_command(data)
-            else:
-                self.sock.close()
-                self.sock = socket(AF_INET, SOCK_STREAM)
 
     def __process_command(self, data):
         self.sock.sendall(data)
+        self.last_online = time.time()
 
 
 if __name__ == "__main__":
-    HOST, PORT, MAX_RECONN, CONN_BUFF, IDLE_T, NIDLE_T, IDLE_TIMEOUT = load_conf()
-    client = BotAgent(HOST, PORT, MAX_RECONN, IDLE_T, NIDLE_T, IDLE_TIMEOUT, CONN_BUFF)
+    HOST, PORT, MAX_RECONN, CONN_BUFF, IDLE_T, NIDLE_T, IDLE_TIMEOUT, RECV_TOUT = load_conf()
+    client = BotAgent(HOST, PORT, MAX_RECONN, IDLE_T, NIDLE_T, IDLE_TIMEOUT, CONN_BUFF, RECV_TOUT)
