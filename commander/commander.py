@@ -43,12 +43,13 @@ class BotCommander:
         addr = writer.get_extra_info('peername')
         logger.core.debug(f"Sending data {message!r} to peer {addr!r}")
         writer.write(message.encode("utf-8"))
-        await writer.wait_closed()
 
         data = await reader.read(self.conn_rcv)
         message = data.decode("utf-8")
-
         logger.core.debug(f"Received {message!r} from {addr!r}")
+
+        writer.close()
+        await writer.wait_closed()
 
     async def __run(self):
         server = await asyncio.start_server(self.__send_instructions, self.host, self.port)
