@@ -1,5 +1,6 @@
 import os
 import asyncio
+import json
 import uuid
 from pathlib import Path
 import time
@@ -39,14 +40,15 @@ class BotCommander:
         asyncio.run(self.__run())
 
     async def __send_instructions(self, reader, writer):
+        task = self.__identify_agent(reader, writer)
         message = "Hello"
         addr = writer.get_extra_info('peername')
-        logger.core.debug(f"Sending data {message!r} to peer {addr!r}")
+        logger.core.debug(f"Sending data {message} to peer {addr}")
         writer.write(message.encode("utf-8"))
 
         data = await reader.read(self.conn_rcv)
         message = data.decode("utf-8")
-        logger.core.debug(f"Received {message!r} from {addr!r}")
+        logger.core.debug(f"Received {message} from {addr}")
 
         writer.close()
         await writer.wait_closed()
@@ -60,10 +62,25 @@ class BotCommander:
         async with server:
             await server.serve_forever()
 
+    async def __identify_agent(self, reader, writer):
+        payload = self.__get_uuid_payload
+        addr = writer.get_extra_info('peername')
+        logger.core.info(f"Connection accepted from peer {addr}")
+        logger.core.debug(f"Sending getUUID to peer {addr}")
+        try:
+            writer.write(b"getUUID")
+        except Exception as err:
+            logger.core.error(f"Unexpected exception when sending getUUID to peer {addr}: {err}")
+        data = await reader.read(self.conn_rcv)
+        if not data:
+            logger.core.error(f"Bot-Agent {addr} has not replied with UUID, unable to add agent, closing connection")
+            writer.write.close()
+            # Cancel current task from the current running loop on this thread
+            asyncio.current_task(asyncio.get_running_loop()).cancel()
+
     @staticmethod
-    def __build_payload(operation):
-        d = {"command": operation}
-        return str(d).encode("utf-8")
+    def __get_uuid_payload():
+        return "getUUID".encode("utf-8")
 
 
 if __name__ == "__main__":

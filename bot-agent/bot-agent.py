@@ -5,7 +5,7 @@ from pathlib import Path
 import time
 from math import pow
 import configparser
-from socket import socket, AF_INET, SOCK_STREAM
+from socket import socket, AF_INET, SOCK_STREAM, gethostname
 
 
 def load_conf():
@@ -34,6 +34,7 @@ class BotAgent:
     def __init__(self, host, port, max_reconn, idle_time, nidle_time, idle_timeout, conn_buff, recv_tout):
         self.host = host
         self.port = port
+        self.hostname = gethostname()
         self.max_reconn = max_reconn
         self.idle = False
         self.last_online = time.time()
@@ -89,18 +90,22 @@ class BotAgent:
             self.sock.settimeout(self.recv_tout)
             try:
                 data = self.sock.recv(self.conn_buff)
-            except Exception as err:
-                print(f"Timeout exceeded while waiting for data from commander, error: {err}")
+            except TimeoutError:
+                print("Bot-agent {} has timed out because no request was sent by commander".format(self.hostname))
                 self.__run()
-            # Waiting time for checking if commander is sending data
+            except Exception as err:
+                print("Timeout exceeded on bot-agent {} while waiting for data from commander, error: {}".
+                      format(self.hostname, err))
+                self.__run()
+            if data:
+                self.__process_command(data)
+            # Waiting time for reconnecting to commander in order to check for data
             if time.time() - self.last_online > self.idle_tout:
                 self.idle = True
             if self.idle:
                 time.sleep(self.idle_t)
             else:
                 time.sleep(self.nidle_t)
-            if data:
-                self.__process_command(data)
 
     def __process_command(self, data):
         self.sock.sendall(data)
