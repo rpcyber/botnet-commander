@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 import time
 from math import pow
-import threading
 import configparser
 from socket import socket, AF_INET, SOCK_STREAM
 

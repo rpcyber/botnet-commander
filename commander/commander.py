@@ -36,24 +36,28 @@ class BotCommander:
         self.port = port
         self.conn_rcv = conn_rcv
         self.sock = socket(AF_INET, SOCK_STREAM)
-        logger.core.info("Server initialized")
-        self.__listen_for_bots()
+        asyncio.run(self.__run())
 
-    def __listen_for_bots(self):
-        try:
-            self.sock.bind((self.host, self.port))
-            self.sock.listen()
-        except Exception as err:
-            logger.core.error(f"Unexpected error occurred when starting listener on {self.host}:{self.port} - {err}")
-            exit(1)
-        logger.core.info(f"Started listener on {self.host}:{self.port}")
-        while True:
-            conn, addr = self.sock.accept()
-            logger.core.info(f"New connection established with {addr}")
-            threading.Thread(target=self.__send_instructions, args=(conn, addr)).start()
+    async def __send_instructions(self, reader, writer):
+        message = "Hello"
+        addr = writer.get_extra_info('peername')
+        logger.core.debug(f"Sending data {message!r} to peer {addr!r}")
+        writer.write(message.encode("utf-8"))
+        await writer.wait_closed()
 
-    def __send_instructions(self):
-        pass
+        data = await reader.read(self.conn_rcv)
+        message = data.decode("utf-8")
+
+        logger.core.debug(f"Received {message!r} from {addr!r}")
+
+    async def __run(self):
+        server = await asyncio.start_server(self.__send_instructions, self.host, self.port)
+
+        addrs = ", ".join(str(self.sock.getsockname()) for self.sock in server.sockets)
+        logger.core.info(f"Server started listener on {addrs}")
+
+        async with server:
+            await server.serve_forever()
 
     @staticmethod
     def __build_payload(operation):
