@@ -46,7 +46,8 @@ class BotAgent:
         self.sock = socket(AF_INET, SOCK_STREAM)
         self.reconnect_count = 0
         self.__check_uuid()
-        self.__run()
+        self.__self_identify()
+        self.__check_for_commands()
 
     def __check_uuid(self):
         self.uid_path = os.path.join("/opt/bot-agent/", ".bot-agent.id")
@@ -83,7 +84,49 @@ class BotAgent:
     def __tls_handshake(self):
         pass
 
-    def __run(self):
+    def __self_identify(self):
+        data = ""
+        self.__tcp_handshake()
+        self.sock.settimeout(self.recv_tout)
+        try:
+            data = self.sock.recv(self.conn_buff)
+        except Exception as err:
+            print("Timeout exceeded on bot-agent {} while waiting for data from commander, error: {}".
+                  format(self.hostname, err))
+            self.__self_identify()
+        if data:
+            if self.__process_identification(data.decode("utf-8")):
+                print("Bot-agent {} has been successfully identified by commander".format(self.hostname))
+                self.__check_for_commands()
+            else:
+                self.__self_identify()
+        else:
+            print("Bot-agent {} hasn't received data from commander, reconnecting".format(self.hostname))
+            self.__self_identify()
+
+    def __process_identification(self, data):
+        if data == "getAgentInfo":
+            try:
+                self.sock.sendall(self.hostname.encode("utf-8"))
+            except Exception as err:
+                print("Unexpected exception occurred for agent {} when sending getAgentInfoResponse to commander: {}".
+                      format(self.hostname, err))
+                return False
+            return True
+        elif data == "getUUID":
+            try:
+                self.sock.sendall(self.uuid.encode("utf-8"))
+            except Exception as err:
+                print("Unexpected exception occurred for agent {} when sending getUUIDResponse to commander: {}".
+                      format(self.hostname, err))
+                return False
+            return True
+        else:
+            print("Unrecognized identification message received from commander by agent {}. Cannot process it,"
+                  " restarting".format(self.hostname))
+            return False
+
+    def __check_for_commands(self):
         while True:
             data = ""
             self.__tcp_handshake()
@@ -92,11 +135,11 @@ class BotAgent:
                 data = self.sock.recv(self.conn_buff)
             except TimeoutError:
                 print("Bot-agent {} has timed out because no request was sent by commander".format(self.hostname))
-                self.__run()
+                self.__check_for_commands()
             except Exception as err:
                 print("Timeout exceeded on bot-agent {} while waiting for data from commander, error: {}".
                       format(self.hostname, err))
-                self.__run()
+                self.__check_for_commands()
             if data:
                 self.__process_command(data)
             # Waiting time for reconnecting to commander in order to check for data
