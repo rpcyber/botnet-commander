@@ -87,55 +87,36 @@ class BotAgent:
     def __self_identify(self):
         self.__tcp_handshake()
         self.sock.settimeout(self.recv_tout)
-        try:
-            print("Sending hostname for bot-agent {} to commander".format(self.hostname))
-            self.sock.sendall(self.hostname)
-        except Exception as err:
-            print("Unexpected error occurred while sending hostname of peer {} to commander: {}".
-                  format(self.hostname, err))
+        if self.__generic_send_receive(self.hostname, "hostname", "getHostnameReply") and \
+                self.__generic_send_receive(self.uuid, "UUID", "getUUIDReply"):
+            print("Identification process for bot-agent {}-{} is successful".format(self.hostname, self.uuid))
+            self.__check_for_commands()
+        else:
             self.__self_identify()
-        data = ""
+
+    def __generic_send_receive(self, payload, req, expected_resp):
+        try:
+            print("Sending {} from bot-agent {} to commander".format(req, self.hostname))
+            self.sock.sendall(payload.encode("utf-8"))
+        except Exception as err:
+            print("Unexpected error occurred while sending {} of peer {} to commander: {}".format(req, self.hostname, err))
+            return False
         try:
             data = self.sock.recv(self.conn_buff)
         except Exception as err:
-            print("Unexpected error occurred while reading getHostnameReply by peer {}: {}".
-                  format(self.hostname, err))
-        if data.decode("utf-8") == "getHostnameReply":
-            print()
-            result = self.__process_identification(data.decode("utf-8"))
-            if result == 1:
-                print("Bot-agent {} hostname has been successfully read by commander".format(self.hostname))
-                self.__check_for_commands()
-            elif result == 2:
-                print("Bot-agent {} has been successfully identified by commander".format(self.hostname))
-                self.__check_for_commands()
-            else:
-                self.__self_identify()
-        else:
-            print("Bot-agent {} hasn't received reply from commander, reconnecting".format(self.hostname))
-            self.__self_identify()
-
-    def __process_identification(self, data):
-        if data == "getAgentInfo":
-            try:
-                self.sock.sendall(self.hostname.encode("utf-8"))
-            except Exception as err:
-                print("Unexpected exception occurred for agent {} when sending getAgentInfoResponse to commander: {}".
-                      format(self.hostname, err))
-                return False
-            return 1
-        elif data == "getUUID":
-            try:
-                self.sock.sendall(self.uuid.encode("utf-8"))
-            except Exception as err:
-                print("Unexpected exception occurred for agent {} when sending getUUIDResponse to commander: {}".
-                      format(self.hostname, err))
-                return False
-            return 2
-        else:
-            print("Unrecognized identification message received from commander by agent {}. Cannot process it,"
-                  " restarting".format(self.hostname))
+            print("Unexpected error occurred while reading {} by peer {}: {}".format(expected_resp, self.hostname, err))
             return False
+        if not data:
+            print("Received EOF or empty response by peer {}-{} from commander instead of {}".
+                  format(self.hostname, self.uuid, expected_resp))
+            return False
+        elif data.decode("utf-8") == expected_resp:
+            print("Bot-agent {} received {} from commander".format(self.hostname, expected_resp))
+        else:
+            print("Unknown reply {} from commander sent to bot-agent {}. Expecting {}"
+                  .format(data.decode("utf-8"), self.hostname, expected_resp))
+            return False
+        return True
 
     def __check_for_commands(self):
         while True:

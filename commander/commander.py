@@ -53,6 +53,9 @@ class BotCommander:
         addr = writer.get_extra_info('peername')
         logger.core.info(f"Connection accepted from peer {addr}")
         hostname = await self.__get_hostname(reader, writer, addr)
+        await self.__process_uuid(reader, writer, addr, hostname)
+
+    async def __process_uuid(self, reader, writer, addr, hostname):
         try:
             data = await reader.read(self.conn_rcv)
         except Exception as err:
@@ -64,7 +67,7 @@ class BotCommander:
             logger.core.error(f"Received EOF or empty response from peer {hostname}-{addr} when reading UUID")
             writer.close()
             return
-        uuid = data.decode("uft-8")
+        uuid = data.decode("utf-8")
         logger.core.debug(f"Received UUID {uuid} from peer {hostname}-{addr}")
         if uuid in self.uuids:
             logger.core.debug(f"Agent {self.uuids[uuid]} with UUID {uuid} already present in DB")
