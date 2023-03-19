@@ -1,9 +1,8 @@
 import os
 import asyncio
-import uuid
+import json
 from pathlib import Path
 import time
-import threading
 import configparser
 from logger import CoreLogger
 from socket import socket, AF_INET, SOCK_STREAM
@@ -41,29 +40,83 @@ class BotCommander:
     async def __send_instructions(self, reader, writer):
         message = "Hello"
         addr = writer.get_extra_info('peername')
-        logger.core.debug(f"Sending data {message!r} to peer {addr!r}")
+        logger.core.debug(f"Sending data {message} to peer {addr}")
         writer.write(message.encode("utf-8"))
 
         data = await reader.read(self.conn_rcv)
         message = data.decode("utf-8")
-        logger.core.debug(f"Received {message!r} from {addr!r}")
+        logger.core.debug(f"Received {message} from {addr}")
 
         writer.close()
-        await writer.wait_closed()
+
+    async def __identify_agent(self, reader, writer):
+        addr = writer.get_extra_info('peername')
+        logger.core.info(f"Connection accepted from peer {addr}")
+        hostname = await self.__get_hostname(reader, writer, addr)
+        await self.__process_uuid(reader, writer, addr, hostname)
+
+    async def __process_uuid(self, reader, writer, addr, hostname):
+        try:
+            data = await reader.read(self.conn_rcv)
+        except Exception as err:
+            logger.core.error(f"Unexpected exception when reading agent UUID from peer {hostname}: {err},"
+                              f" closing connection")
+            writer.close()
+            return
+        if not data:
+            logger.core.error(f"Received EOF or empty response from peer {hostname}-{addr} when reading UUID")
+            writer.close()
+            return
+        uuid = data.decode("utf-8")
+        logger.core.debug(f"Received UUID {uuid} from peer {hostname}-{addr}")
+        if uuid in self.uuids:
+            logger.core.debug(f"Agent {self.uuids[uuid]} with UUID {uuid} already present in DB")
+        else:
+            online = True
+            self.uuids[uuid] = (hostname, online)
+            logger.core.debug(f"Successfully added agent {hostname}-{uuid} to DB")
+        try:
+            writer.write(b"getUUIDReply")
+        except Exception as err:
+            logger.core.error(f"Unexpected exception when sending getUUIDReply to {hostname}: {err},"
+                              f" closing connection")
+            writer.close()
+            return
+
+    @staticmethod
+    def __get_uuid_payload():
+        return "getUUID".encode("utf-8")
+
+    async def __get_hostname(self, reader, writer, addr):
+        try:
+            data = await reader.read(self.conn_rcv)
+        except Exception as err:
+            logger.core.error(f"Unexpected exception when reading hostname from peer {addr}: {err},"
+                              f" closing connection")
+            return
+        if not data:
+            logger.core.error(f"Received EOF or empty response from peer {addr} when reading hostname")
+            writer.close()
+            return
+        hostname = data.decode("utf-8")
+        logger.core.debug(f"Received hostname {hostname} from peer {addr}")
+        try:
+            writer.write(b"getHostnameReply")
+        except Exception as err:
+            logger.core.error(f"Unexpected exception when sending getHostnameReply to {hostname}: {err},"
+                              f" closing connection")
+            writer.close()
+            return
+        return hostname
 
     async def __run(self):
-        server = await asyncio.start_server(self.__send_instructions, self.host, self.port)
+        server = await asyncio.start_server(self.__identify_agent, self.host, self.port)
 
         addrs = ", ".join(str(self.sock.getsockname()) for self.sock in server.sockets)
         logger.core.info(f"Server started listener on {addrs}")
 
         async with server:
             await server.serve_forever()
-
-    @staticmethod
-    def __build_payload(operation):
-        d = {"command": operation}
-        return str(d).encode("utf-8")
 
 
 if __name__ == "__main__":
