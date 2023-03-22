@@ -1,8 +1,6 @@
 import os
 import asyncio
-import json
 from pathlib import Path
-import time
 import configparser
 from logger import CoreLogger
 from socket import socket, AF_INET, SOCK_STREAM
@@ -37,7 +35,36 @@ class BotCommander:
         self.sock = socket(AF_INET, SOCK_STREAM)
         asyncio.run(self.__run())
 
+    @staticmethod
+    def __print_help():
+        print('''
+        Welcome to Commander CLI!
+        The following options are available:
+        1) Execute shell/cmd commands
+        2) Execute python script
+        3) Perform DDOS attack         
+        ''')
+
+    def __get_user_input(self):
+        val = 0
+        cmd = input("Please insert a digit representing the option you want to choose: ")
+        try:
+            val = int(cmd)
+        except ValueError:
+            print("You have not inserted a digit, please insert a digit.")
+            self.__get_user_input()
+        except Exception as err:
+            print(f"An unexpected exception occurred while processing your choice. Please retry and insert a digit. This"
+                  f"is the error: {err}")
+            self.__get_user_input()
+        if val in range(1, 4):
+            return val
+        else:
+            print("Please insert a digit corresponding to one of the available options, 1, 2 or 3")
+
     async def __send_instructions(self, reader, writer):
+        self.__print_help()
+        choice = self.__get_user_input()
         message = "Hello"
         addr = writer.get_extra_info('peername')
         logger.core.debug(f"Sending data {message} to peer {addr}")
