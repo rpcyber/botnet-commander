@@ -79,7 +79,7 @@ class BotCommander:
                     if msg == "Hello":
                         logger.core.debug(f"Received Hello from bot-agent {hostname}:{addr}")
                         self.uuids[uuid] = (hostname, True)
-                        logger.core.info(f"Bot-agent {hostname}:{addr} is still online")
+                        logger.core.debug(f"Bot-agent {hostname}:{addr} is still online")
                         try:
                             logger.core.debug(f"Sending HelloReply to bot-agent {hostname}:{addr}")
                             writer.write(b"HelloReply")
