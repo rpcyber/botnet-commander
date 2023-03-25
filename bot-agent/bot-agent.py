@@ -1,5 +1,6 @@
 import os
 import uuid
+from subprocess import Popen
 import json
 from pathlib import Path
 import time
@@ -18,8 +19,6 @@ def load_conf():
         host = config_parser.get("CORE", "HOST")
         port = int(config_parser.get("CORE", "PORT"))
         max_reconn = int(config_parser.get("CORE", "MAX_RECONN"))
-        idle_time = int(config_parser.get("CORE", "IDLE_TIME"))
-        nidle_time = int(config_parser.get("CORE", "NIDLE_TIME"))
         idle_timeout = int(config_parser.get("CORE", "IDLE_TIMEOUT"))
         conn_buff = int((config_parser.get("CORE", "CONN_BUFF")))
         recv_tout = int((config_parser.get("CORE", "RECV_TIMEOUT")))
@@ -27,27 +26,23 @@ def load_conf():
         print("Error initializing CORE, bot agent not started because config file could not be loaded. Unexpected "
               "exception occurred: {}".format(err))
         exit(5)
-    return host, port, max_reconn, conn_buff, idle_time, nidle_time, idle_timeout, recv_tout
+    return host, port, max_reconn, conn_buff, idle_timeout, recv_tout
 
 
 class BotAgent:
-    def __init__(self, host, port, max_reconn, idle_time, nidle_time, idle_timeout, conn_buff, recv_tout):
+    def __init__(self, host, port, max_reconn, idle_timeout, conn_buff, recv_tout):
         self.host = host
         self.port = port
         self.hostname = gethostname()
         self.max_reconn = max_reconn
         self.idle = False
-        self.last_online = time.time()
         self.recv_tout = recv_tout
-        self.idle_t = idle_time
-        self.nidle_t = nidle_time
         self.idle_tout = idle_timeout
         self.conn_buff = conn_buff
         self.sock = socket(AF_INET, SOCK_STREAM)
         self.reconnect_count = 0
         self.__check_uuid()
         self.__self_identify()
-        self.__check_for_commands()
 
     def __check_uuid(self):
         self.uid_path = os.path.join("/opt/bot-agent/", ".bot-agent.id")
@@ -68,6 +63,7 @@ class BotAgent:
             self.sock.close()
             self.sock = socket(AF_INET, SOCK_STREAM)
             self.sock.connect((self.host, self.port))
+            self.last_online = time.time()
         except Exception as err:
             print("Unexpected error occurred when connecting to commander: {}".format(err))
             self.sock.close()
@@ -121,32 +117,62 @@ class BotAgent:
     def __check_for_commands(self):
         while True:
             data = ""
-            self.__tcp_handshake()
+            if time.time() - self.last_online > self.idle_tout:
+                # Send hello to commander so that it knows this bot-agent is still online
+                if self.__keep_alive():
+                    continue
+                else:
+                    self.__self_identify()
             self.sock.settimeout(self.recv_tout)
             try:
                 data = self.sock.recv(self.conn_buff)
             except TimeoutError:
-                print("Bot-agent {} has timed out because no request was sent by commander".format(self.hostname))
-                self.__check_for_commands()
+                print("Bot-agent {} has not received any request from commander in the past {} seconds. Still waiting".
+                      format(self.hostname, self.recv_tout))
             except Exception as err:
-                print("Timeout exceeded on bot-agent {} while waiting for data from commander, error: {}".
+                print("Unexpected error on bot-agent {} when reading input stream from commander, error: {}".
                       format(self.hostname, err))
-                self.__check_for_commands()
             if data:
                 self.__process_command(data)
-            # Waiting time for reconnecting to commander in order to check for data
-            if time.time() - self.last_online > self.idle_tout:
-                self.idle = True
-            if self.idle:
-                time.sleep(self.idle_t)
-            else:
-                time.sleep(self.nidle_t)
 
-    def __process_command(self, data):
-        self.sock.sendall(data)
+    def __keep_alive(self):
+        try:
+            self.sock.sendall(b"Hello")
+        except Exception as err:
+            print("Unexpected exception occurred for bot-agent {} when sending Hello to commander: {}".
+                  format(self.hostname, err))
+            return False
+        try:
+            data = self.sock.recv(self.conn_buff)
+        except TimeoutError as err:
+            print("Timeout occurred for bot-agent {} when reading HelloReply from commander: {}. Reconnecting".
+                  format(self.hostname, err))
+            return False
+        if data:
+            try:
+                msg = data.decode("utf-8")
+                if msg == "HelloReply":
+                    self.last_online = time.time()
+                    return True
+                else:
+                    print("Unexpected message content received by bot-agent {} from commander".
+                          format(self.hostname))
+                    return False
+            except Exception as err:
+                print("Unexpected error while decoding reply from commander for Hello sent by bot-agent {}: {}"
+                      .format(self.hostname, err))
+                return False
+        else:
+            print("Received EOF by bot-agent {} from commander. Reconnecting".format(self.hostname))
+            return False
+
+    def __identify_command(self, data):
+        payload = ""
+
+        self.sock.sendall(payload)
         self.last_online = time.time()
 
 
 if __name__ == "__main__":
-    HOST, PORT, MAX_RECONN, CONN_BUFF, IDLE_T, NIDLE_T, IDLE_TIMEOUT, RECV_TOUT = load_conf()
-    client = BotAgent(HOST, PORT, MAX_RECONN, IDLE_T, NIDLE_T, IDLE_TIMEOUT, CONN_BUFF, RECV_TOUT)
+    HOST, PORT, MAX_RECONN, CONN_BUFF, IDLE_TIMEOUT, RECV_TOUT = load_conf()
+    client = BotAgent(HOST, PORT, MAX_RECONN, IDLE_TIMEOUT, CONN_BUFF, RECV_TOUT)
