@@ -135,6 +135,9 @@ class BotAgent:
             if data:
                 self.__process_command(data)
 
+    def __process_command(self, data):
+        pass
+
     def __keep_alive(self):
         try:
             self.sock.sendall(b"Hello")
