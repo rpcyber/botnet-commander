@@ -1,6 +1,5 @@
 import os
 import asyncio
-from threading import Thread
 from pathlib import Path
 import configparser
 from logger import CoreLogger
@@ -36,8 +35,10 @@ class BotCommander:
         self.conn_rcv = conn_rcv
         self.offline_tout = offline_tout
         self.sock = socket(AF_INET, SOCK_STREAM)
-        self.user_thread = Thread(target=self.__get_user_input).start()
-        asyncio.run(self.__run())
+        loop = asyncio.new_event_loop()
+        loop.create_task(self.__process_user_input())
+        loop.create_task(self.__server_run())
+        loop.run_forever()
 
     @staticmethod
     def __print_help():
@@ -60,11 +61,16 @@ class BotCommander:
         only to those online bot-agents running on the chosen OS type command
         """)
 
-    def __get_user_input(self):
+    @staticmethod
+    def __get_user_input(message):
+        return input(f"{message}")
+
+    async def __process_user_input(self):
         self.__print_help()
         while True:
             val = 0
-            choice = input("Please insert a digit representing the option you want to choose: ")
+            msg = "Please insert a digit corresponding to one of the available options, 1, 2 or 3: "
+            choice = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
             try:
                 val = int(choice)
             except ValueError:
@@ -76,7 +82,7 @@ class BotCommander:
                 match val:
                     case 1:
                         self.__print_cmd_options()
-                        self.__exec_shell_cmd()
+                        await self.__exec_shell_cmd()
                     case 2:
                         self.__exec_python_script()
                     case 3:
@@ -84,17 +90,18 @@ class BotCommander:
             else:
                 print("Please insert a digit corresponding to one of the available options, 1, 2 or 3")
 
-    def __exec_shell_cmd(self):
-        choice = input("Please insert a digit representing the option you want to choose: ")
+    async def __exec_shell_cmd(self):
+        msg = "Please insert a digit corresponding to one of the available options, 1, 2 or 3: "
+        choice = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
         try:
             val = int(choice)
         except ValueError:
             print("You have not inserted a digit, please insert a digit.")
-            self.__exec_shell_cmd()
+            await self.__exec_shell_cmd()
         except Exception as err:
             print(f"An unexpected exception occurred while processing your choice. Please retry and insert a digit."
                   f" This is the error: {err}")
-            self.__exec_shell_cmd()
+            await self.__exec_shell_cmd()
         if val in range(1, 4):
             match val:
                 case 1:
@@ -106,18 +113,31 @@ class BotCommander:
         else:
             print("Please insert a digit corresponding to one of the available options, 1, 2 or 3")
             self.__print_cmd_options()
-            self.__exec_shell_cmd()
+            await self.__exec_shell_cmd()
         print("NOTE: There is no validation performed by commander in regards to your command, so insert a valid one")
-        cmd = input("Please insert the command you want to be executed: ")
+        msg = "Please insert the command you want to send to bot-agents: "
+        cmd = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
         if cmd:
-            self.__send_cmd_to_bot_agents(cmd, cmd_filter)
+            await self.__schedule_command(cmd, cmd_filter)
         else:
             print("You need to insert something. Starting over")
             self.__print_cmd_options()
-            self.__exec_shell_cmd()
+            await self.__exec_shell_cmd()
 
-    def __send_cmd_to_bot_agents(self, payload, cmd_filter):
-        pass
+    # TODO Implement cmd_filter, need to implement OS detection on bot-agent and include it in json of uuid
+    async def __schedule_command(self, payload, cmd_filter):
+        for uuid in self.uuids:
+            if self.uuids[uuid].get("online"):
+                await asyncio.wait_for(self.__send_cmd_to_bot_agent(uuid, payload), timeout=60)
+
+    async def __send_cmd_to_bot_agent(self, uuid, payload):
+        try:
+            logger.core.debug(f'Sending payload {payload} to bot-agent {self.uuids[uuid]["hostname"]}:'
+                              f'{self.uuids[uuid]["addr"]}')
+            self.uuids[uuid]["writer"].write(payload.encode("utf-8"))
+        except Exception as err:
+            logger.core.error(f'Unexpected exception when writing stream {payload} to bot-agent'
+                              f' {self.uuids[uuid]["hostname"]}:{self.uuids[uuid]["addr"]} - {err}')
 
     def __exec_python_script(self):
         pass
@@ -128,10 +148,17 @@ class BotCommander:
     async def __communicate_with_agent(self, reader, writer, addr, hostname, uuid):
         while True:
             try:
-                data = await reader.read(self.conn_rcv)
+                data = await asyncio.wait_for(reader.read(self.conn_rcv), timeout=self.offline_tout)
+            except TimeoutError:
+                logger.core.error(f"Timeout exceeded for bot-agent {hostname}:{addr}, no input stream received in the"
+                                  f"last 200 seconds, setting bot-agent to offline, closing connection")
+                self.uuids[uuid]["online"] = False
+                writer.close()
+                return
             except Exception as err:
                 logger.core.error(f"Unexpected exception when reading input stream from bot-agent {hostname}: {err},"
-                                  f" closing connection")
+                                  f" setting bot-agent to offline, closing connection")
+                self.uuids[uuid]["online"] = False
                 writer.close()
                 return
             if data:
@@ -143,7 +170,9 @@ class BotCommander:
                             self.uuids[uuid]["online"] = True
                         except KeyError:
                             logger.core.error(f"KeyError encountered when updating state of bot-agent {hostname} to "
-                                              f"online after Hello was received. UUID {uuid} doesn't exist in DB")
+                                              f"online after Hello was received. UUID {uuid} doesn't exist in DB. "
+                                              f"Setting bot-agent to offline and closing connection")
+                            self.uuids[uuid]["online"] = False
                             writer.close()
                             return
                         logger.core.debug(f"Bot-agent {hostname}:{addr} is still online")
@@ -152,21 +181,26 @@ class BotCommander:
                             writer.write(b"HelloReply")
                         except Exception as err:
                             logger.core.error(f"Unexpected exception when sending HelloReply to {hostname}: {err},"
-                                              f" closing connection")
+                                              f"setting bot-agent to offline, closing connection")
+                            self.uuids[uuid]["online"] = False
                             writer.close()
                             return
                     else:
-                        logger.core.error(f"Unknown message received from peer {hostname}:{addr}, expecting Hello."
-                                          f" Closing connection")
+                        logger.core.error(f"Unknown message received from peer {hostname}:{addr}, expecting Hello, but "
+                                          f"received {msg}. Setting bot-agent to offline, closing connection")
+                        self.uuids[uuid]["online"] = False
                         writer.close()
                         return
                 except Exception as err:
-                    logger.core.error(f"Unexpected error while decoding data from peer {hostname}:{addr}: {err}")
+                    logger.core.error(f"Unexpected error while decoding data from peer {hostname}:{addr}: {err}. "
+                                      f"Setting bot-agent to offline, closing connection")
+                    self.uuids[uuid]["online"] = False
                     writer.close()
                     return
             else:
                 logger.core.error(f"EOF received when reading input stream from bot-agent {hostname}:{addr},"
-                                  f" closing connection")
+                                  f"setting bot-agent to offline, closing connection")
+                self.uuids[uuid]["online"] = False
                 writer.close()
                 return
 
@@ -242,7 +276,7 @@ class BotCommander:
             return
         return hostname
 
-    async def __run(self):
+    async def __server_run(self):
         server = await asyncio.start_server(self.__identify_agent, self.host, self.port)
 
         addrs = ", ".join(str(self.sock.getsockname()) for self.sock in server.sockets)
