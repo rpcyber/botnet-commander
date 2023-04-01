@@ -1,4 +1,5 @@
 import os
+import json
 import asyncio
 from pathlib import Path
 import configparser
@@ -204,12 +205,48 @@ class BotCommander:
                 writer.close()
                 return
 
-    async def __identify_agent(self, reader, writer):
+    async def __add_agent(self, reader, writer):
         addr = writer.get_extra_info('peername')
         logger.core.info(f"Connection accepted from peer {addr}")
-        hostname = await self.__get_hostname(reader, writer, addr)
+        agent_info = await self.__get_agent_info(reader, writer, addr)
+        hostname = await self.__get_hostinfo(reader, writer, addr)
         uuid = await self.__process_uuid(reader, writer, addr, hostname)
         asyncio.create_task(self.__communicate_with_agent(reader, writer, addr, hostname, uuid))
+
+    async def __get_agent_info(self, reader, writer, addr):
+        try:
+            data = await asyncio.wait_for(reader.read(self.conn_rcv), timeout=self.offline_tout)
+        except TimeoutError:
+            logger.core.error(f"Timeout exceeded for bot-agent {addr}, no input stream received in the"
+                              f"last 200 seconds, commander was unable to add agent, closing connection")
+            writer.close()
+            return
+        except Exception as err:
+            logger.core.error(f"Unexpected exception when reading input stream from bot-agent {addr}: {err},"
+                              f" failed to add bot-agent to commander, closing connection")
+            writer.close()
+            return
+        if data:
+            agent_info = self.__json_deserialize(data, addr)
+            if agent_info:
+                self.__process_agent_info(agent_info)
+            else:
+                logger.core.error(f"Decoding of getHostInfoResponse from peer {addr} has failed, failed to add"
+                                  f"bot-agent, closing connection")
+                writer.close()
+                return
+
+    def __process_agent_info(self, agent_info):
+        pass
+
+    @staticmethod
+    def __json_deserialize(data, addr):
+        try:
+            agent_info = json.loads(data.decode("utf-8"))
+        except Exception as err:
+            logger.core.error(f"Unexpected error when decoding getHostInfoResponse from bot-agent {addr}: {err}.")
+            return False
+        return agent_info
 
     async def __process_uuid(self, reader, writer, addr, hostname):
         try:
@@ -240,9 +277,6 @@ class BotCommander:
             return
         return uuid
 
-    @staticmethod
-    def __get_uuid_payload():
-        return "getUUID".encode("utf-8")
 
     @staticmethod
     def __safe_dict_double_get(d, key_1, key_2):
@@ -254,30 +288,30 @@ class BotCommander:
         except Exception as err:
             logger.core.error(f"Unexpected error when commander tried to fetch {key_2} for bot-agent with UUID {key_1}: {err}")
 
-    async def __get_hostname(self, reader, writer, addr):
+    async def __get_hostinfo(self, reader, writer, addr):
         try:
             data = await reader.read(self.conn_rcv)
         except Exception as err:
-            logger.core.error(f"Unexpected exception when reading hostname from peer {addr}: {err},"
+            logger.core.error(f"Unexpected exception when reading hostinfo from peer {addr}: {err},"
                               f" closing connection")
             return
         if not data:
-            logger.core.error(f"Received EOF or empty response from peer {addr} when reading hostname")
+            logger.core.error(f"Received EOF or empty response from peer {addr} when reading hostinfo")
             writer.close()
             return
-        hostname = data.decode("utf-8")
-        logger.core.debug(f"Received hostname {hostname} from peer {addr}")
+        hostinfo = data.decode("utf-8")
+        logger.core.debug(f"Received hostname {hostinfo} from peer {addr}")
         try:
-            writer.write(b"getHostnameReply")
+            writer.write(b"getHostInfoReply")
         except Exception as err:
-            logger.core.error(f"Unexpected exception when sending getHostnameReply to {hostname}: {err},"
+            logger.core.error(f"Unexpected exception when sending getHostInfoReply to {hostname}: {err},"
                               f" closing connection")
             writer.close()
             return
         return hostname
 
     async def __server_run(self):
-        server = await asyncio.start_server(self.__identify_agent, self.host, self.port)
+        server = await asyncio.start_server(self.__add_agent, self.host, self.port)
 
         addrs = ", ".join(str(self.sock.getsockname()) for self.sock in server.sockets)
         logger.core.info(f"Server started listener on {addrs}")

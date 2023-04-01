@@ -1,8 +1,9 @@
 import os
-import subprocess
+import platform
 import uuid
 import shlex
-from subprocess import Popen
+from subprocess import Popen, PIPE
+from platform import system
 import json
 from pathlib import Path
 import time
@@ -36,6 +37,7 @@ class BotAgent:
         self.host = host
         self.port = port
         self.hostname = gethostname()
+        self.os = self.__os_type()
         self.max_reconn = max_reconn
         self.idle = False
         self.recv_tout = recv_tout
@@ -45,6 +47,14 @@ class BotAgent:
         self.reconnect_count = 0
         self.__check_uuid()
         self.__self_identify()
+
+    @staticmethod
+    def __os_type():
+        op_sys = system()
+        if op_sys:
+            return op_sys
+        else:
+            print("Error, operating system type could not be determined, this info will be missing from commander")
 
     def __check_uuid(self):
         self.uid_path = os.path.join("/opt/bot-agent/", ".bot-agent.id")
@@ -85,7 +95,7 @@ class BotAgent:
     def __self_identify(self):
         self.__tcp_handshake()
         self.sock.settimeout(self.recv_tout)
-        if self.__generic_send_receive(self.hostname, "hostname", "getHostnameReply") and \
+        if self.__generic_send_receive(self.hostname, "hostinfo", "getHostInfoReply") and \
                 self.__generic_send_receive(self.uuid, "UUID", "getUUIDReply"):
             print("Identification process for bot-agent {}-{} is successful".format(self.hostname, self.uuid))
             self.__check_for_commands()
@@ -139,7 +149,7 @@ class BotAgent:
                 self.__process_command(data.decode("utf-8"))
 
     def __process_command(self, data):
-        p = Popen(shlex.split(data))
+        p = Popen(shlex.split(data), stderr=PIPE, stdout=PIPE)
         try:
             out, err = p.communicate(timeout=15)
         except TimeoutError:
