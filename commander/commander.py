@@ -133,6 +133,7 @@ class BotCommander:
             await self.__exec_shell_cmd()
 
     async def __schedule_command(self, payload, cmd_filter):
+        self.__json_builder()
         if cmd_filter:
             for uuid in self.uuids:
                 if self.uuids[uuid].get("online") and self.uuids[uuid].get("os") == cmd_filter:
@@ -319,15 +320,19 @@ class BotCommander:
             return False
         return payload
 
-    def __json_builder(self, message, hostname):
+    def __json_builder(self, message, *args):
         d = {"message": f"{message}"}
         match message:
             case "botHostInfoReply":
+                hostname = args
                 payload = self.__json_serialize(d, message, hostname)
             case "botHelloReply":
+                hostname = args
                 payload = self.__json_serialize(d, message, hostname)
+            case "exeCommand":
+                pass
             case _:
-                logger.core.error(f"Json builder was not able ot match any known reply to send to bot-agent {hostname}")
+                logger.core.error(f"Json builder was not able to build message, unknown request: args: {args}")
                 return False
         return payload
 
