@@ -282,6 +282,10 @@ class BotCommander:
                 if uuid in self.uuids:
                     logger.core.debug(f'Agent {addr} with UUID {uuid} already present in DB. Its hostname is '
                                       f'{self.uuids[uuid].get("hostname")})')
+                    logger.core.debug(f'Agent {addr}-{uuid} is now set to online')
+                    self.uuids[uuid]["online"] = True
+                    self.uuids[uuid]["reader"] = reader
+                    self.uuids[uuid]["writer"] = writer
                     return uuid
                 else:
                     hostname = json_msg.get("hostname")

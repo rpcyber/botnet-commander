@@ -143,10 +143,10 @@ class BotAgent:
             case "exeCommand":
                 cmd = json_msg.get("command")
                 print("Bot-agent {} received exeCommand - {} from commander".format(self.hostname, cmd))
-                response = self.__execute_command(cmd)
+                response, exit_code = self.__execute_command(cmd)
                 if response:
-                    payload = self.__build_json_payload("exeCommandReply", optional=(data.decode("utf-8"),
-                                                                                     response.decode("utf-8")))
+                    payload = self.__build_json_payload("exeCommandReply", optional=(json_msg.get("command"),
+                                                                                     response, exit_code))
                     return payload
                 else:
                     return False
@@ -169,8 +169,8 @@ class BotAgent:
             case "botHello":
                 d = {"message": msg}
             case "exeCommandReply":
-                request, response = optional
-                d = {"message": msg, "command": request, "result": response}
+                request, response, exit_code = optional
+                d = {"message": msg, "command": request, "result": response, "exit_code": exit_code}
             case _:
                 print("Internal error, json payload to build didn't match any supported message type")
                 return False
@@ -242,7 +242,7 @@ class BotAgent:
             response = err
         else:
             response = "Empty response from bot-agent {} for command {}".format(self.hostname, data)
-        return response
+        return str(response), p.returncode
 
     @staticmethod
     def __which(executable):
