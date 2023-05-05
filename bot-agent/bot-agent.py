@@ -224,12 +224,12 @@ class BotAgent:
         except Exception as err:
             print("Unexpected exception when splitting command received from commander by bot-agent {}. Will not "
                   "process it and just move on. Error: {}".format(self.hostname, err))
-            return
+            return False, False
         if not self.__which(command):
             msg = "The command {} that commander has sent to bot-agent {} is unknown. Will not process it and just " \
                   "move on.".format(command, self.hostname)
             print(msg)
-            return msg.encode("utf-8")
+            return msg, False
         p = Popen(popen_payload, stderr=PIPE, stdout=PIPE)
         try:
             out, err = p.communicate(timeout=timeout)

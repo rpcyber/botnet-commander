@@ -150,6 +150,9 @@ class BotCommander:
                     self.cmd_tout = val
                 case "N":
                     pass
+                case _:
+                    print("Please insert Y or N...")
+                    await self.__exec_shell_cmd()
             while True:
                 msg = "Please insert the command you want to send to bot-agents: "
                 cmd = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
