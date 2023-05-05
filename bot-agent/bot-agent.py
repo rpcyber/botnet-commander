@@ -1,4 +1,5 @@
 import os
+import subprocess
 import uuid
 import shlex
 from subprocess import Popen, PIPE
@@ -142,8 +143,9 @@ class BotAgent:
                 self.last_online = time.time()
             case "exeCommand":
                 cmd = json_msg.get("command")
+                timeout = json_msg.get("timeout")
                 print("Bot-agent {} received exeCommand - {} from commander".format(self.hostname, cmd))
-                response, exit_code = self.__execute_command(cmd)
+                response, exit_code = self.__execute_command(cmd, timeout)
                 if response:
                     payload = self.__build_json_payload("exeCommandReply", optional=(json_msg.get("command"),
                                                                                      response, exit_code))
@@ -215,7 +217,7 @@ class BotAgent:
                 else:
                     self.__self_identify()
 
-    def __execute_command(self, data):
+    def __execute_command(self, data, timeout):
         try:
             popen_payload = shlex.split(data)
             command = popen_payload[0]
@@ -230,10 +232,11 @@ class BotAgent:
             return msg.encode("utf-8")
         p = Popen(popen_payload, stderr=PIPE, stdout=PIPE)
         try:
-            out, err = p.communicate(timeout=15)
-        except TimeoutError:
+            out, err = p.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
             p.kill()
-            out, err = p.communicate()
+            response = "TimeoutExpired ({} seconds) from bot-agent {} for command{}".format(timeout, self.hostname, data)
+            return response, p.returncode
         if out and err:
             response = "Output: {}, Error: {}".format(out, err)
         elif out:
