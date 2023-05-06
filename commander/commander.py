@@ -259,6 +259,7 @@ class BotCommander:
         logger.core.info(f"Connection accepted from peer {addr}")
         agent_uuid = await self.__add_agent(reader, writer, addr)
         if not agent_uuid:
+            writer.close()
             return
         asyncio.create_task(self.__communicate_with_agent(reader, writer, addr, agent_uuid))
 
@@ -276,24 +277,20 @@ class BotCommander:
                         except Exception as err:
                             logger.core.error(f'Unexpected error when sending botHostInfoReply to bot-agent '
                                               f'{agent_uuid}-{addr}: {err}. Closing connection, set agent to offline.')
-                            writer.close()
                             self.uuids.get(agent_uuid)["online"] = False
                             return
                         return agent_uuid
                     else:
                         logger.core.error(f"Closing connection of bot-agent {agent_uuid}:{addr} as adding process was"
                                           f" not successfully completed. Closing connection, set agent to offline")
-                        writer.close()
                         self.uuids.get(agent_uuid)["online"] = False
                         return
                 else:
                     logger.core.error(f"Decoding of getHostInfoReply from peer {addr} has failed, failed to add"
                                       f"bot-agent, closing connection")
-                    writer.close()
                     return
         else:
             logger.core.info(f"Closing connection to peer {addr}")
-            writer.close()
             return
 
     def __process_input_stream(self, json_item, addr, reader, writer, uuid_in=None):
