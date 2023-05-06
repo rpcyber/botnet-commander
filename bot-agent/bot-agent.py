@@ -1,6 +1,9 @@
 import os
+import subprocess
 import uuid
-from subprocess import Popen
+import shlex
+from subprocess import Popen, PIPE
+from platform import system
 import json
 from pathlib import Path
 import time
@@ -22,27 +25,38 @@ def load_conf():
         idle_timeout = int(config_parser.get("CORE", "IDLE_TIMEOUT"))
         conn_buff = int((config_parser.get("CORE", "CONN_BUFF")))
         recv_tout = int((config_parser.get("CORE", "RECV_TIMEOUT")))
+        hello_freq = int((config_parser.get("CORE", "HELLO_FREQ")))
     except Exception as err:
         print("Error initializing CORE, bot agent not started because config file could not be loaded. Unexpected "
               "exception occurred: {}".format(err))
         exit(5)
-    return host, port, max_reconn, conn_buff, idle_timeout, recv_tout
+    return host, port, max_reconn, conn_buff, idle_timeout, recv_tout, hello_freq
 
 
 class BotAgent:
-    def __init__(self, host, port, max_reconn, idle_timeout, conn_buff, recv_tout):
+    def __init__(self, host, port, max_reconn, idle_timeout, conn_buff, recv_tout, hello_freq):
         self.host = host
         self.port = port
         self.hostname = gethostname()
+        self.os = self.__os_type()
         self.max_reconn = max_reconn
         self.idle = False
         self.recv_tout = recv_tout
         self.idle_tout = idle_timeout
         self.conn_buff = conn_buff
+        self.hello_freq = hello_freq
         self.sock = socket(AF_INET, SOCK_STREAM)
         self.reconnect_count = 0
         self.__check_uuid()
         self.__self_identify()
+
+    @staticmethod
+    def __os_type():
+        op_sys = system()
+        if op_sys:
+            return op_sys
+        else:
+            print("Error, operating system type could not be determined, this info will be missing from commander")
 
     def __check_uuid(self):
         self.uid_path = os.path.join("/opt/bot-agent/", ".bot-agent.id")
@@ -83,36 +97,105 @@ class BotAgent:
     def __self_identify(self):
         self.__tcp_handshake()
         self.sock.settimeout(self.recv_tout)
-        if self.__generic_send_receive(self.hostname, "hostname", "getHostnameReply") and \
-                self.__generic_send_receive(self.uuid, "UUID", "getUUIDReply"):
-            print("Identification process for bot-agent {}-{} is successful".format(self.hostname, self.uuid))
+        if self.__send_agent_info():
+            print("Bot-agent {}-{} has been successfully added by commander".format(self.hostname, self.uuid))
             self.__check_for_commands()
         else:
+            if self.reconnect_count < self.max_reconn:
+                self.reconnect_count += 1
+            time.sleep(pow(2, self.reconnect_count))
             self.__self_identify()
 
-    def __generic_send_receive(self, payload, req, expected_resp):
+    def __send_agent_info(self):
+        payload = self.__build_json_payload("botHostInfo")
+        if not payload:
+            self.__self_identify()
         try:
-            print("Sending {} from bot-agent {} to commander".format(req, self.hostname))
-            self.sock.sendall(payload.encode("utf-8"))
+            print("Sending botHostInfo from bot-agent {} to commander".format(self.hostname))
+            self.sock.sendall(payload)
         except Exception as err:
-            print("Unexpected error occurred while sending {} of peer {} to commander: {}".format(req, self.hostname, err))
-            return False
+            print("Unexpected error occurred while sending botHostInfo of peer {} to commander: {}".format(self.hostname, err))
+            return
         try:
             data = self.sock.recv(self.conn_buff)
         except Exception as err:
-            print("Unexpected error occurred while reading {} by peer {}: {}".format(expected_resp, self.hostname, err))
-            return False
-        if not data:
-            print("Received EOF or empty response by peer {}-{} from commander instead of {}".
-                  format(self.hostname, self.uuid, expected_resp))
-            return False
-        elif data.decode("utf-8") == expected_resp:
-            print("Bot-agent {} received {} from commander".format(self.hostname, expected_resp))
+            print("Unexpected error occurred while reading botHostInfoReply by peer {}: {}".format(self.hostname, err))
+            return
+        if data:
+            if self.__process_input_stream(data):
+                return True
+            else:
+                return
         else:
-            print("Unknown reply {} from commander sent to bot-agent {}. Expecting {}"
-                  .format(data.decode("utf-8"), self.hostname, expected_resp))
-            return False
+            print("Received EOF or empty response by peer {}-{} from commander instead of botHostInfoReply".
+                  format(self.hostname, self.uuid))
+            return
+
+    def __process_input_stream(self, data):
+        json_msg = self.__json_deserialize(data)
+        if not isinstance(json_msg, dict):
+            return
+        msg = json_msg.get("message")
+        match msg:
+            case "botHostInfoReply":
+                print("Bot-agent {} received botHostInfoReply from commander".format(self.hostname))
+                self.last_online = time.time()
+            case "botHelloReply":
+                print("Bot-agent {} received botHelloReply from commander".format(self.hostname))
+                self.last_online = time.time()
+            case "exeCommand":
+                cmd = json_msg.get("command")
+                timeout = json_msg.get("timeout")
+                print("Bot-agent {} received exeCommand - {} from commander".format(self.hostname, cmd))
+                response, exit_code = self.__execute_command(cmd, timeout)
+                if response:
+                    payload = self.__build_json_payload("exeCommandReply", optional=(json_msg.get("command"),
+                                                        response, exit_code))
+                    if payload:
+                        try:
+                            print(
+                                "Sending {} from bot-agent {} to commander".format(payload.decode("utf-8"),
+                                                                                   self.hostname))
+                            self.sock.sendall(payload)
+                            self.last_online = time.time()
+                        except Exception as err:
+                            print("Unexpected exception for bot-agent {} when replying to command {}: {}".format(
+                                self.hostname, data, err))
+                            return
+                    else:
+                        return
+                else:
+                    return
+            case _:
+                print("Bot-agent {} received an unknown message from commander: {}".format(self.hostname, msg))
+                return
         return True
+
+    @staticmethod
+    def __json_deserialize(data):
+        try:
+            return json.loads(data.decode("utf-8"))
+        except Exception as err:
+            print("Unexpected exception when deserializing message from commander: {}".format(err))
+
+    def __build_json_payload(self, msg, optional=None):
+        match msg:
+            case "botHostInfo":
+                d = {"message": msg, "uuid": self.uuid, "hostname": self.hostname, "os": self.os}
+            case "botHello":
+                d = {"message": msg}
+            case "exeCommandReply":
+                request, response, exit_code = optional
+                d = {"message": msg, "command": request, "result": response, "exit_code": exit_code}
+            case _:
+                print("Internal error, json payload to build didn't match any supported message type")
+                return
+        try:
+            payload = (json.dumps(d) + "\n").encode("utf-8")
+        except Exception as err:
+            print("Unexpected error when serializing {} json: {}. Reconnecting to commander.".format(msg, err))
+            return
+        return payload
 
     def __check_for_commands(self):
         while True:
@@ -120,59 +203,122 @@ class BotAgent:
             if time.time() - self.last_online > self.idle_tout:
                 # Send hello to commander so that it knows this bot-agent is still online
                 if self.__keep_alive():
+                    time.sleep(self.hello_freq)
                     continue
                 else:
                     self.__self_identify()
-            self.sock.settimeout(self.recv_tout)
             try:
-                data = self.sock.recv(self.conn_buff)
+                data = self.__read_buffer()
             except TimeoutError:
                 print("Bot-agent {} has not received any request from commander in the past {} seconds. Still waiting".
                       format(self.hostname, self.recv_tout))
             except Exception as err:
                 print("Unexpected error on bot-agent {} when reading input stream from commander, error: {}".
                       format(self.hostname, err))
+                self.__self_identify()
             if data:
-                self.__process_command(data)
+                for json_item in data:
+                    result = self.__process_input_stream(json_item)
+                    if result:
+                        continue
+                    else:
+                        self.__self_identify()
+
+    def __execute_command(self, data, timeout):
+        try:
+            popen_payload = shlex.split(data)
+            command = popen_payload[0]
+        except Exception as err:
+            print("Unexpected exception when splitting command received from commander by bot-agent {}. Will not "
+                  "process it and just move on. Error: {}".format(self.hostname, err))
+            return False, False
+        if not self.__which(command):
+            msg = "The command {} that commander has sent to bot-agent {} is unknown. Will not process it and just " \
+                  "move on.".format(command, self.hostname)
+            print(msg)
+            return msg, False
+        p = Popen(popen_payload, stderr=PIPE, stdout=PIPE)
+        try:
+            out, err = p.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            response = "TimeoutExpired ({} seconds) from bot-agent {} for command{}".format(timeout, self.hostname, data)
+            return response, p.returncode
+        if out and err:
+            response = "Output: {}, Error: {}".format(out, err)
+        elif out:
+            response = out
+        elif err:
+            response = err
+        else:
+            response = "Empty response from bot-agent {} for command {}".format(self.hostname, data)
+        return str(response), p.returncode
+
+    @staticmethod
+    def __which(executable):
+        def is_exe(f_path):
+            return os.path.isfile(f_path) and os.access(f_path, os.X_OK)
+
+        f_path, f_name = os.path.split(executable)
+        if f_path:
+            if is_exe(executable):
+                return executable
+        else:
+            for path in os.environ["PATH"].split(os.pathsep):
+                exe_file = os.path.join(path, executable)
+                if is_exe(exe_file):
+                    return exe_file
 
     def __keep_alive(self):
-        try:
-            self.sock.sendall(b"Hello")
-        except Exception as err:
-            print("Unexpected exception occurred for bot-agent {} when sending Hello to commander: {}".
-                  format(self.hostname, err))
-            return False
-        try:
-            data = self.sock.recv(self.conn_buff)
-        except TimeoutError as err:
-            print("Timeout occurred for bot-agent {} when reading HelloReply from commander: {}. Reconnecting".
-                  format(self.hostname, err))
-            return False
-        if data:
+        payload = self.__build_json_payload("botHello")
+        if payload:
             try:
-                msg = data.decode("utf-8")
-                if msg == "HelloReply":
-                    self.last_online = time.time()
-                    return True
-                else:
-                    print("Unexpected message content received by bot-agent {} from commander".
-                          format(self.hostname))
-                    return False
+                self.sock.sendall(payload)
+                self.last_online = time.time()
             except Exception as err:
-                print("Unexpected error while decoding reply from commander for Hello sent by bot-agent {}: {}"
-                      .format(self.hostname, err))
-                return False
+                print("Unexpected exception occurred for bot-agent {} when sending botHello to commander: {}".
+                      format(self.hostname, err))
+                return
         else:
-            print("Received EOF by bot-agent {} from commander. Reconnecting".format(self.hostname))
+            print("Reconnecting")
+            return
+        return True
+
+    def __read_buffer(self):
+        buffer = self.__read_initial()
+        if not buffer:
+            print("EOF received from commander by bot-agent {}".format(self.hostname))
             return False
+        buffering = True
+        data_list = []
+        while buffering:
+            if b"\n" in buffer:
+                (line, buffer) = buffer.split(b"\n", 1)
+                data_list.append(line)
+                return data_list
+            else:
+                more_data = self.sock.recv(self.conn_buff)
+                if not more_data:
+                    buffering = False
+                else:
+                    buffer += more_data
+        return data_list
 
-    def __identify_command(self, data):
-        payload = ""
-
-        self.sock.sendall(payload)
-        self.last_online = time.time()
+    def __read_initial(self):
+        self.sock.settimeout(self.recv_tout)
+        try:
+            buffer = self.sock.recv(self.conn_buff)
+        except TimeoutError:
+            print("Timeout of {} seconds exceeded. Bot-agent {} has not received input stream from commander".
+                  format(self.hostname, self.recv_tout))
+            return False
+        except Exception as err:
+            print("Unexpected error on bot-agent {} when reading input stream from commander, error: {}".
+                  format(self.hostname, err))
+            return False
+        return buffer
 
 
 if __name__ == "__main__":
-    HOST, PORT, MAX_RECONN, CONN_BUFF, IDLE_TIMEOUT, RECV_TOUT = load_conf()
-    client = BotAgent(HOST, PORT, MAX_RECONN, IDLE_TIMEOUT, CONN_BUFF, RECV_TOUT)
+    HOST, PORT, MAX_RECONN, CONN_BUFF, IDLE_TIMEOUT, RECV_TOUT, HELLO_FREQ = load_conf()
+    client = BotAgent(HOST, PORT, MAX_RECONN, IDLE_TIMEOUT, CONN_BUFF, RECV_TOUT, HELLO_FREQ)
