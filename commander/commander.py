@@ -66,6 +66,14 @@ class BotCommander:
         5) Go back to previous menu
         """)
 
+    def __print_shell_notes(self):
+        print("NOTE: There is no validation performed by commander in regards to your command, so insert a valid "
+              "one, if you insert an invalid one however you will just get the output and error for that command"
+              " sent back by bot-agent, this note is just FYI.")
+        print(f"The current timeout value for the commands to run on agents equal to {self.cmd_tout} seconds, this"
+              f" can be changed in commander.ini or right now. If you change it now it will be updated with the"
+              f" value from commander.ini when commander is restarted.")
+
     @staticmethod
     def __get_user_input(message):
         return input(f"{message}")
@@ -126,12 +134,7 @@ class BotCommander:
                     print("Please insert a digit corresponding to one of the available options, 1, 2, 3 or 4")
                     self.__print_cmd_options()
                     await self.__exec_shell_cmd()
-            print("NOTE: There is no validation performed by commander in regards to your command, so insert a valid "
-                  "one, if you insert an invalid one however you will just get the output and error for that command"
-                  " sent back by bot-agent, this note is just FYI.")
-            print(f"The current timeout value for the commands to run on agents equal to {self.cmd_tout} seconds, this"
-                  f" can be changed in commander.ini or right now. If you change it now it will be updated with the"
-                  f" value from commander.ini when commander is restarted.")
+            self.__print_shell_notes()
             msg = "Do you wish to change timeout value? [Y/N]: "
             choice = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
             match choice:
