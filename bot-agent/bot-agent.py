@@ -143,7 +143,7 @@ class BotAgent:
             cmd = json_msg.get("command")
             timeout = json_msg.get("timeout")
             print("Bot-agent {} received {} - {} from commander".format(self.hostname, msg, cmd))
-            response, exit_code = self.__execute_command(cmd, timeout)
+            response, exit_code = self.__execute_command(msg, cmd, timeout)
             if response:
                 payload = self.__build_json_payload("exeCommandReply", optional=(json_msg.get("command"),
                                                     response, exit_code))
@@ -226,14 +226,17 @@ class BotAgent:
                     else:
                         self.__self_identify()
 
-    def __execute_command(self, data, timeout):
-        try:
-            popen_payload = shlex.split(data)
-            command = popen_payload[0]
-        except Exception as err:
-            print("Unexpected exception when splitting command received from commander by bot-agent {}. Will not "
-                  "process it and just move on. Error: {}".format(self.hostname, err))
-            return False, False
+    def __execute_command(self, cmd_type, data, timeout):
+        if cmd_type == "exeCommand":
+            try:
+                popen_payload = shlex.split(data)
+                command = popen_payload[0]
+            except Exception as err:
+                print("Unexpected exception when splitting command received from commander by bot-agent {}. Will not "
+                      "process it and just move on. Error: {}".format(self.hostname, err))
+                return False, False
+        elif cmd_type == "exeScript":
+            pass
         if not self.__which(command):
             msg = "The command {} that commander has sent to bot-agent {} is unknown. Will not process it and just " \
                   "move on.".format(command, self.hostname)
