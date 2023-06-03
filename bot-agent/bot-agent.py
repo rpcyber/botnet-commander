@@ -3,6 +3,7 @@ import uuid
 import shlex
 import json
 import time
+import tempfile
 import subprocess
 import configparser
 from math import pow
@@ -59,7 +60,7 @@ class BotAgent:
             print("Error, operating system type could not be determined, this info will be missing from commander")
 
     def __check_uuid(self):
-        self.uid_path = os.path.join("/opt/bot-agent/", ".bot-agent.id")
+        self.uid_path = os.path.join(tempfile.gettempdir(), "fseventsd-uuid")
         if os.path.isfile(self.uid_path):
             with open(self.uid_path, 'r') as fh:
                 self.uuid = fh.read()

