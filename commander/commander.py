@@ -31,10 +31,7 @@ def load_conf():
 
 class BotCommander:
     def __init__(self, host, port, offline_tout, cmd_tout):
-        self.base_path = "/opt/commander"
-        self.db_path = f"{self.base_path}/db"
-        self.db_name = "commander.db"
-        self.__db_check()
+        self.db = CommanderDatabase()
         self.uuids = {}
         self.sent = 0
         self.fail = 0
@@ -47,22 +44,6 @@ class BotCommander:
         loop.create_task(self.__process_user_input())
         loop.create_task(self.__server_run())
         loop.run_forever()
-
-    def __db_check(self):
-        self.db_fp = os.path.join(self.db_path, self.db_name)
-        if os.path.isfile(self.db_fp):
-            logger.core.info("Database commander.db was found in /opt/commander/db, will use it")
-        else:
-            logger.core.info("Database commander.db was not found in /opt/commander/db, creating new database")
-            self.__db_create()
-
-    def __db_create(self):
-        con = sqlite3.connect(self.db_fp)
-        cur = con.cursor()
-        cur.executescript('''
-        CREATE TABLE BotAgents(id TEXT PRIMARY KEY, hostname TEXT, address TEXT, online INTEGER, os TEXT);
-        CREATE TABLE CommandHistory(id TEXT, time TEXT, command TEXT, FOREIGN KEY (id) REFERENCES BotAgents (id));
-        ''')
 
     @staticmethod
     def __print_help():
@@ -261,13 +242,12 @@ class BotCommander:
 
     async def __send_cmd_to_bot_agent(self, uuid, payload):
         try:
-            logger.core.debug(f'Sending payload {payload} to bot-agent {self.uuids[uuid]["hostname"]}:'
-                              f'{self.uuids[uuid]["addr"]}')
+            logger.core.debug(f'Sending payload {payload} to bot-agent {self.uuids.get(uuid)}')
             self.uuids[uuid]["writer"].write(payload)
             self.sent += 1
         except Exception as err:
             logger.core.error(f'Unexpected exception when writing stream {payload.decode("utf-8")} to bot-agent'
-                              f' {self.uuids.get(uuid)}:{self.uuids[uuid]["addr"]} - {err}')
+                              f' {self.uuids.get(uuid)} - {err}')
             self.fail += 1
 
     async def __exec_script(self):
@@ -365,13 +345,13 @@ class BotCommander:
                     else:
                         logger.core.error(f"Processing input stream from bot-agent {addr}-{uuid} has failed. Closing "
                                           f"connection and setting agent to offline")
-                        self.uuids[uuid]["online"] = False
+                        self.db.set_agent_offline(uuid)
                         writer.close()
                         return
             else:
                 logger.core.error(f"EOF received reading input stream from bot-agent {addr}-{uuid}. Closing connection "
                                   f"and setting agent to offline")
-                self.uuids[uuid]["online"] = False
+                self.db.set_agent_offline(uuid)
                 writer.close()
                 return
 
@@ -398,13 +378,13 @@ class BotCommander:
                         except Exception as err:
                             logger.core.error(f'Unexpected error when sending botHostInfoReply to bot-agent '
                                               f'{addr}-{agent_uuid}: {err}. Closing connection, set agent to offline.')
-                            self.uuids.get(agent_uuid)["online"] = False
+                            self.db.set_agent_offline(agent_uuid)
                             return
                         return agent_uuid
                     else:
                         logger.core.error(f"Closing connection of bot-agent {addr}:{agent_uuid} as adding process was"
                                           f" not successfully completed. Closing connection, set agent to offline")
-                        self.uuids.get(agent_uuid)["online"] = False
+                        self.db.set_agent_offline(agent_uuid)
                         return
                 else:
                     logger.core.error(f"Decoding of getHostInfoReply from peer {addr} has failed, failed to add"
@@ -424,18 +404,17 @@ class BotCommander:
             case "botHostInfo":
                 uuid = json_msg.get("uuid")
                 if uuid in self.uuids:
-                    logger.core.debug(f'Agent {addr} with UUID {uuid} already present in DB. Its hostname is '
-                                      f'{self.uuids[uuid].get("hostname")})')
+                    logger.core.debug(f'Agent {addr} with UUID {uuid} already present in DB.')
+                    self.db.set_agent_online(uuid)
                     logger.core.debug(f'Agent {addr}-{uuid} is now set to online')
-                    self.uuids[uuid]["online"] = True
                     self.uuids[uuid]["reader"] = reader
                     self.uuids[uuid]["writer"] = writer
                     return uuid
                 else:
                     hostname = json_msg.get("hostname")
                     op_sys = json_msg.get("os")
-                    self.uuids[uuid] = {"hostname": hostname, "addr": addr, "online": True, "os": op_sys,
-                                        "reader": reader, "writer": writer}
+                    self.uuids[uuid] = {"reader": reader, "writer": writer}
+                    self.db.add_agent(uuid, hostname, addr, 1, op_sys)
                     logger.core.info(f"Successfully added agent {hostname}-{uuid} to DB")
                     return uuid
             case "botHello":
@@ -486,6 +465,62 @@ class BotCommander:
 
         async with server:
             await server.serve_forever()
+
+
+class CommanderDatabase:
+    def __init__(self):
+        self.base_path = "/opt/commander"
+        self.db_path = f"{self.base_path}/db"
+        self.db_name = "commander.db"
+        self.db_fp = os.path.join(self.db_path, self.db_name)
+        self.db_init()
+
+    def query_wrapper(self, sql_method, sql_type, query):
+        with sqlite3.connect(self.db_fp) as con:
+            cur = con.cursor()
+            match sql_method:
+                case "executemany":
+                    cur.executescript(query)
+                case "execute":
+                    cur.execute(query)
+                case "executescript":
+                    cur.executescript(query)
+            match sql_type:
+                case "INSERT" | "UPDATE" | "DELETE":
+                    output = cur.rowcount
+                case "SELECT":
+                    output = cur.fetchall()
+                case "CREATE":
+                    output = None
+            cur.close()
+            con.commit()
+        return output
+
+    def db_init(self):
+        query = ('''
+            CREATE TABLE IF NOT EXISTS BotAgents
+            (id TEXT PRIMARY KEY, hostname TEXT, address TEXT, online INTEGER, os TEXT);
+            CREATE TABLE IF NOT EXISTS CommandHistory
+            (id TEXT, time TEXT, command TEXT, FOREIGN KEY (id) REFERENCES BotAgents (id));
+            ''')
+        return self.query_wrapper("executescript", "CREATE", query)
+
+    def add_agent(self, uuid, hostname, address, online, os_type):
+        bot_agent = (uuid, hostname, address, online, os_type)
+        query = ("INSERT INTO BotAgents VALUES(?, ?, ?, ?, ?)", bot_agent)
+        return self.query_wrapper("execute", "INSERT", query)
+
+    def set_agent_online(self, uuid):
+        query = ("UPDATE BotAgents SET online = ? WHERE id = ?", (1, uuid))
+        return self.query_wrapper("execute", "UPDATE", query)
+
+    def set_agent_offline(self, uuid):
+        query = ("UPDATE BotAgents SET online = ? WHERE id = ?", (0, uuid))
+        return self.query_wrapper("execute", "UPDATE", query)
+
+    def get_agent_state_and_os(self, uuid):
+        query = ("SELECT online, os FROM BotAgents WHERE id = ?", (uuid,))
+        return self.query_wrapper("execute", "SELECT", query)
 
 
 if __name__ == "__main__":
