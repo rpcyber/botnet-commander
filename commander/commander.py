@@ -1,4 +1,5 @@
 import os
+import time
 import json
 import asyncio
 import sqlite3
@@ -233,7 +234,7 @@ class BotCommander:
         for elem in self.target_list:
             uuid, = elem
             await asyncio.wait_for(self.__send_cmd_to_bot_agent(uuid, payload), timeout=60)
-        self.db.add_agent_events(self.success_list, command, )
+        self.db.add_agent_events(self.success_list, command, payload.get("command"))
 
     async def __send_cmd_to_bot_agent(self, uuid, payload):
         try:
@@ -402,7 +403,7 @@ class BotCommander:
         match message:
             case "botHostInfo":
                 uuid = json_msg.get("uuid")
-                if uuid in self.uuids:
+                if self.db.agent_exists(uuid):
                     logger.core.debug(f'Agent {addr} with UUID {uuid} already present in DB.')
                     rows = self.db.set_agent_online(uuid)
                     logger.core.debug(f'Agent {addr}-{uuid} is now set to online. Row count: {rows}')
@@ -450,7 +451,7 @@ class BotCommander:
             d = {"message": f"{message}", "command": cmd, "timeout": self.cmd_tout}
         elif message == "exeScript":
             s_data, s_type, s_path = args
-            d = {"message": f"{message}", "script": s_path, "type": s_type, "timeout": self.cmd_tout, "content": s_data}
+            d = {"message": f"{message}", "script": s_path, "type": s_type, "timeout": self.cmd_tout, "command": s_data}
         else:
             logger.core.error(f"Json builder was not able to build {message}, unknown request: args: {args}")
             return False
@@ -501,7 +502,7 @@ class CommanderDatabase:
             CREATE TABLE IF NOT EXISTS BotAgents
             (id TEXT PRIMARY KEY, hostname TEXT, address TEXT, online INTEGER, os TEXT);
             CREATE TABLE IF NOT EXISTS CommandHistory
-            (index INTEGER PRIMARY KEY AUTOINCREMENT, time TEXT, id TEXT, event TEXT, event_detail TEXT, response TEXT,
+            (count INTEGER PRIMARY KEY AUTOINCREMENT, time TEXT, id TEXT, event TEXT, event_detail TEXT, response TEXT,
              FOREIGN KEY (id) REFERENCES BotAgents (id));
             ''')
         return self.query_wrapper("executescript", "CREATE", query)
@@ -511,24 +512,31 @@ class CommanderDatabase:
         query = ("INSERT INTO BotAgents VALUES(?, ?, ?, ?, ?)", bot_agent)
         return self.query_wrapper("execute", "INSERT", query)
 
+    def agent_exists(self, uid):
+        pass
+
     def set_agent_online(self, uuid):
-        query = ("UPDATE BotAgents SET online = ? WHERE id = ?", (1, uuid))
+        query = ("UPDATE BotAgents SET online = ? WHERE id = ?", ('1', uuid))
         return self.query_wrapper("execute", "UPDATE", query)
 
     def set_agent_offline(self, uuid):
-        query = ("UPDATE BotAgents SET online = ? WHERE id = ?", (0, uuid))
+        query = ("UPDATE BotAgents SET online = ? WHERE id = ?", ('0', uuid))
         return self.query_wrapper("execute", "UPDATE", query)
 
     def get_ids_of_online_agents(self, cmd_filter=""):
         if cmd_filter:
-            query = ("SELECT id FROM BotAgents WHERE online = ? AND os = ?", (1, cmd_filter))
+            query = ("SELECT id FROM BotAgents WHERE online = ? AND os = ?", ('1', cmd_filter))
         else:
-            query = ("SELECT id FROM BotAgents WHERE online = ?", (1,))
+            query = ("SELECT id FROM BotAgents WHERE online = ?", '1')
         return self.query_wrapper("execute", "SELECT", query)
 
-    def add_agent_events(self, uuid_list, event, event_detail, response_list):
-        query = ("INSERT INTO CommandHistory(time, id, event, event_detail, response) VALUES (?, ?, ?, ?, ?)", uuid_list)
+    def add_agent_events(self, uuid_list, event, event_detail):
+        data = list(zip([time.time(), ] * len(uuid_list), uuid_list, [event, ] * len(uuid_list), [event_detail, ] * len(uuid_list)))
+        query = ("INSERT INTO CommandHistory(time, id, event, event_detail) VALUES (?, ?, ?, ?)", data)
         return self.query_wrapper("executemany", "INSERT", query)
+
+    def add_event_responses(self):
+        pass
 
 
 if __name__ == "__main__":

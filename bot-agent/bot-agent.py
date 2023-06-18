@@ -155,7 +155,7 @@ class BotAgent:
             script = json_msg.get("script")
             script_type = json_msg.get("type")
             timeout = json_msg.get("timeout")
-            script_data = json_msg.get("content")
+            script_data = json_msg.get("command")
             print("Bot-agent {} received {} - {} from commander".format(self.hostname, msg, script_type))
             response, exit_code = self.__execute_command(msg, timeout, script_type, script_data)
             if response:
