@@ -476,14 +476,14 @@ class CommanderDatabase:
         self.db_fp = os.path.join(self.db_path, self.db_name)
         self.db_init()
 
-    def query_wrapper(self, sql_method, sql_type, query):
+    def query_wrapper(self, sql_method, sql_type, query, params=None):
         with sqlite3.connect(self.db_fp) as con:
             cur = con.cursor()
             match sql_method:
                 case "executemany":
-                    cur.executescript(query)
+                    cur.executemany(query, params)
                 case "execute":
-                    cur.execute(query)
+                    cur.execute(query, params)
                 case "executescript":
                     cur.executescript(query)
             match sql_type:
@@ -509,26 +509,28 @@ class CommanderDatabase:
 
     def add_agent(self, uuid, hostname, address, online, os_type):
         bot_agent = (uuid, hostname, address, online, os_type)
-        query = ("INSERT INTO BotAgents VALUES(?, ?, ?, ?, ?)", bot_agent)
-        return self.query_wrapper("execute", "INSERT", query)
+        query = "INSERT INTO BotAgents VALUES(?, ?, ?, ?, ?)"
+        return self.query_wrapper("execute", "INSERT", query, params=[bot_agent])
 
     def agent_exists(self, uid):
-        pass
+        query = "SELECT EXISTS(SELECT 1 FROM BotAgents WHERE id=?)"
+        return self.query_wrapper("execute", "SELECT", query, params=[uid])
 
     def set_agent_online(self, uuid):
-        query = ("UPDATE BotAgents SET online = ? WHERE id = ?", ('1', uuid))
-        return self.query_wrapper("execute", "UPDATE", query)
+        query = "UPDATE BotAgents SET online=? WHERE id=?"
+        return self.query_wrapper("execute", "UPDATE", query, params=['1', uuid])
 
     def set_agent_offline(self, uuid):
-        query = ("UPDATE BotAgents SET online = ? WHERE id = ?", ('0', uuid))
-        return self.query_wrapper("execute", "UPDATE", query)
+        query = "UPDATE BotAgents SET online=? WHERE id=?"
+        return self.query_wrapper("execute", "UPDATE", query, params=['0', uuid])
 
     def get_ids_of_online_agents(self, cmd_filter=""):
         if cmd_filter:
-            query = ("SELECT id FROM BotAgents WHERE online = ? AND os = ?", ('1', cmd_filter))
+            query = "SELECT id FROM BotAgents WHERE online=? AND os=?"
+            return self.query_wrapper("execute", "SELECT", query, params=['1', cmd_filter])
         else:
-            query = ("SELECT id FROM BotAgents WHERE online = ?", '1')
-        return self.query_wrapper("execute", "SELECT", query)
+            query = "SELECT id FROM BotAgents WHERE online=?"
+            return self.query_wrapper("execute", "SELECT", query, params=['1'])
 
     def add_agent_events(self, uuid_list, event, event_detail):
         data = list(zip([time.time(), ] * len(uuid_list), uuid_list, [event, ] * len(uuid_list), [event_detail, ] * len(uuid_list)))
