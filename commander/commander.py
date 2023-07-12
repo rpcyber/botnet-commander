@@ -228,13 +228,13 @@ class BotCommander:
                     continue
 
     async def __schedule_command(self, command, cmd_filter, *args):
-        payload = self.__json_builder(command, *args)
+        payload, json_dict = self.__json_builder(command, *args)
         self.target_list = self.db.get_ids_of_online_agents(cmd_filter)
         self.success_list = []
         for elem in self.target_list:
-            uuid, = elem
+            uuid = elem
             await asyncio.wait_for(self.__send_cmd_to_bot_agent(uuid, payload), timeout=60)
-        self.db.add_agent_events(self.success_list, command, payload.get("command"))
+        self.db.add_agent_events(self.success_list, command, json_dict.get("command"))
 
     async def __send_cmd_to_bot_agent(self, uuid, payload):
         try:
@@ -368,7 +368,7 @@ class BotCommander:
             for json_item in data:
                 agent_uuid = self.__process_input_stream(json_item, addr, reader, writer)
                 if agent_uuid:
-                    payload = self.__json_builder("botHostInfoReply")
+                    payload, json_dict = self.__json_builder("botHostInfoReply")
                     if payload:
                         try:
                             logger.core.debug(f'Sending botHostInfoReply to bot-agent {addr}-{agent_uuid}')
@@ -395,7 +395,7 @@ class BotCommander:
             return
 
     def __process_input_stream(self, json_item, addr, reader, writer, uuid_in=None):
-        logger.core.debug(f"Deserializing {json_item} received from bot-agent {addr}-{uuid_in}")
+        logger.core.debug(f"Deserializing {json_item} received from bot-agent {addr}")
         json_msg = self.__json_deserialize(json_item, addr, uuid_in)
         if not json_msg:
             return False
@@ -419,7 +419,7 @@ class BotCommander:
                     logger.core.debug(f"Affected rows by adding agent {hostname}-{uuid} : {rows} row")
                     return uuid
             case "botHello":
-                payload = self.__json_builder("botHelloReply")
+                payload, json_dict = self.__json_builder("botHelloReply")
                 if payload:
                     try:
                         logger.core.debug(f"Sending botHelloReply to bot-agent {addr}-{uuid_in}")
@@ -456,7 +456,7 @@ class BotCommander:
             logger.core.error(f"Json builder was not able to build {message}, unknown request: args: {args}")
             return False
         payload = self.__json_serialize(d, message)
-        return payload
+        return payload, d
 
     async def __server_run(self):
         server = await asyncio.start_server(self.__handle_agent, self.host, self.port)
@@ -490,7 +490,7 @@ class CommanderDatabase:
                 case "INSERT" | "UPDATE" | "DELETE":
                     output = cur.rowcount
                 case "SELECT":
-                    output = cur.fetchall()
+                    output = [x[0] for x in cur.fetchall()]
                 case "CREATE":
                     output = None
             cur.close()
@@ -508,13 +508,15 @@ class CommanderDatabase:
         return self.query_wrapper("executescript", "CREATE", query)
 
     def add_agent(self, uuid, hostname, address, online, os_type):
-        bot_agent = (uuid, hostname, address, online, os_type)
+        address_socket = f'{address[0]}:{address[1]}'
+        bot_agent = [uuid, hostname, address_socket, online, os_type]
         query = "INSERT INTO BotAgents VALUES(?, ?, ?, ?, ?)"
-        return self.query_wrapper("execute", "INSERT", query, params=[bot_agent])
+        return self.query_wrapper("execute", "INSERT", query, params=bot_agent)
 
     def agent_exists(self, uid):
         query = "SELECT EXISTS(SELECT 1 FROM BotAgents WHERE id=?)"
-        return self.query_wrapper("execute", "SELECT", query, params=[uid])
+        result = self.query_wrapper("execute", "SELECT", query, params=[uid])
+        return result[0]
 
     def set_agent_online(self, uuid):
         query = "UPDATE BotAgents SET online=? WHERE id=?"
