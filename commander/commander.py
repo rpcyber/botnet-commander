@@ -51,8 +51,6 @@ class BotCommander:
         The following options are available:
         1) Execute shell/cmd commands
         2) Execute script
-        3) Download File
-        4) Upload File
         ''')
 
     @staticmethod
@@ -155,7 +153,7 @@ class BotCommander:
     async def __process_user_input(self):
         while True:
             self.__print_help()
-            msg = "Please insert a digit corresponding to one of the available options, 1, 2, 3 or 4: "
+            msg = "Please insert a digit corresponding to one of the available options, 1 or 2: "
             choice = await asyncio.get_running_loop().run_in_executor(None, self.__get_user_input, msg)
             val = self.__check_if_number(choice)
             if not val:
@@ -433,10 +431,6 @@ class BotCommander:
                 return True
             case "exeScriptReply":
                 return True
-            case "putFileReply":
-                pass
-            case "getFileReply":
-                pass
             case _:
                 logger.core.error(f"Processing of message received from bot-agent {addr} has failed, unknown message: "
                                   f"{message}, commander cannot interpret this. Closing connection ")
