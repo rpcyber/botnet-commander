@@ -238,7 +238,7 @@ class BotCommander:
 
     async def __send_cmd_to_bot_agent(self, uuid, payload):
         try:
-            logger.core.debug(f'Sending payload {payload} to bot-agent {self.uuids.get(uuid)}')
+            logger.core.debug(f'Sending payload {payload} to bot-agent {uuid}')
             self.uuids[uuid]["writer"].write(payload)
             self.success_list.append(uuid)
         except Exception as err:
@@ -407,8 +407,7 @@ class BotCommander:
                     logger.core.debug(f'Agent {addr} with UUID {uuid} already present in DB.')
                     rows = self.db.set_agent_online(uuid)
                     logger.core.debug(f'Agent {addr}-{uuid} is now set to online. Row count: {rows}')
-                    self.uuids[uuid]["reader"] = reader
-                    self.uuids[uuid]["writer"] = writer
+                    self.uuids[uuid] = {"reader": reader, "writer": writer}
                     return uuid
                 else:
                     hostname = json_msg.get("hostname")
@@ -536,8 +535,8 @@ class CommanderDatabase:
 
     def add_agent_events(self, uuid_list, event, event_detail):
         data = list(zip([time.time(), ] * len(uuid_list), uuid_list, [event, ] * len(uuid_list), [event_detail, ] * len(uuid_list)))
-        query = ("INSERT INTO CommandHistory(time, id, event, event_detail) VALUES (?, ?, ?, ?)", data)
-        return self.query_wrapper("executemany", "INSERT", query)
+        query = "INSERT INTO CommandHistory(time, id, event, event_detail) VALUES (?, ?, ?, ?)"
+        return self.query_wrapper("executemany", "INSERT", query, params=data)
 
     def add_event_responses(self):
         pass
