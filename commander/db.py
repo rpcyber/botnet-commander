@@ -12,6 +12,9 @@ class CommanderDatabase:
         self.db_path = f"{self.base_path}/db"
         self.db_name = "commander.db"
         self.db_fp = os.path.join(self.db_path, self.db_name)
+        self.bulk_timer = time.time()
+        self.bulk_response = {}
+        self.pending = False
         self.db_init()
 
     def query_wrapper(self, sql_method, sql_type, query, params=None):
@@ -75,7 +78,16 @@ class CommanderDatabase:
     def add_agent_events(self, uuid_list, event, event_detail):
         data = list(zip([time.time(), ] * len(uuid_list), uuid_list, [event, ] * len(uuid_list), [event_detail, ] * len(uuid_list)))
         query = "INSERT INTO CommandHistory(time, id, event, event_detail) VALUES (?, ?, ?, ?)"
+        self.pending = True
         return self.query_wrapper("executemany", "INSERT", query, params=data)
 
     def add_event_responses(self, uuid_list, event, event_detail):
-        pass
+
+        self.bulk_response = {}
+        if self.check_if_pending():
+
+        return
+
+    def check_if_pending(self):
+        query = 'SELECT NOT EXISTS(SELECT 1 FROM CommandHistory WHERE response is null)'
+        return self.query_wrapper("execute", "SELECT", query)

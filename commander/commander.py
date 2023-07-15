@@ -45,7 +45,7 @@ class BotCommander:
         loop.run_forever()
 
     def __print_timeout_note(self):
-        print(f"The current timeout value for the commands to run on agents equal to {self.cmd_tout} seconds, this"
+        print(f"The current timeout value for the commands to run on agents equal to {self. cmd_tout} seconds, this"
               f" can be changed in commander.ini or right now. If you change it now it will be updated with the"
               f" value from commander.ini when commander is restarted.")
 
