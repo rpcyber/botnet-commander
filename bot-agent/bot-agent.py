@@ -187,7 +187,7 @@ class BotAgent:
                 d = {"message": msg, "command": request, "result": response, "exit_code": exit_code}
             case "exeScriptReply":
                 s_path, response, exit_code = args
-                d = {"message": msg, "script": s_path, "result": response, "exit_code": exit_code}
+                d = {"message": msg, "command": s_path, "result": response, "exit_code": exit_code}
             case _:
                 print("Internal error, json payload to build didn't match any supported message type")
                 return
