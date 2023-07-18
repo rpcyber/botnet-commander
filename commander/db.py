@@ -2,22 +2,23 @@ import os
 import time
 import sqlite3
 import logging
+import asyncio
 
 logger = logging.getLogger(__name__)
 
 
 class CommanderDatabase:
-    def __init__(self):
+    def __init__(self, resp_wait_window):
         self.base_path = "/opt/commander"
         self.db_path = f"{self.base_path}/db"
         self.db_name = "commander.db"
         self.db_fp = os.path.join(self.db_path, self.db_name)
-        self.bulk_timer = time.time()
+        self.resp_wait_window = resp_wait_window
         self.bulk_response = []
         self.pending = False
         self.db_init()
 
-    def query_wrapper(self, sql_method, sql_type, query, params=None):
+    def query_wrapper(self, sql_method, sql_type, query, params=()):
         with sqlite3.connect(self.db_fp) as con:
             cur = con.cursor()
             match sql_method:
@@ -81,13 +82,20 @@ class CommanderDatabase:
         rows_affected = self.query_wrapper("executemany", "INSERT", query, params=data)
         return rows_affected
 
-    def add_event_responses(self, uuid_list, event, event_detail):
+    def add_event_responses(self):
+        query = "WITH Tmp(id, event_detail, response_new, exit_code_new) AS (VALUES(?, ?, ?, ?)) " \
+                "UPDATE CommandHistory SET response = (SELECT response_new FROM Tmp WHERE CommandHistory.id = Tmp.id " \
+                "AND CommandHistory.event_detail = Tmp.event_detail AND CommandHistory.response is null)," \
+                " exit_code = (SELECT exit_code_new FROM Tmp WHERE CommandHistory.id = Tmp.id AND" \
+                " CommandHistory.event_detail = Tmp.event_detail AND CommandHistory.response is null)" \
+                " WHERE id IN (SELECT id FROM Tmp)"
+        rows_affected = self.query_wrapper("executemany", "UPDATE", query, params=self.bulk_response)
+        logger.debug(f"Event responses have been added to DB, number of rows updated: {rows_affected}")
+        self.bulk_response = []
 
-        if self.check_if_pending():
-            #INSERT AND REINITIALIZE BULK
-            self.bulk_response = []
-        return
-
-    def check_if_pending(self):
-        query = 'SELECT NOT EXISTS(SELECT 1 FROM CommandHistory WHERE response is null)'
-        return self.query_wrapper("execute", "SELECT", query)
+    async def check_if_pending(self):
+        while True:
+            time.sleep(self.resp_wait_window)
+            query = 'SELECT NOT EXISTS(SELECT 1 FROM CommandHistory WHERE response is null)'
+            if self.query_wrapper("execute", "SELECT", query):
+                await asyncio.get_running_loop().run_in_executor(None, self.add_event_responses)

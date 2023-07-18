@@ -33,21 +33,21 @@ def load_conf():
 
 class BotCommander:
     def __init__(self, host, port, offline_tout, cmd_tout, resp_wait_window):
-        self.db = CommanderDatabase()
+        self.db = CommanderDatabase(resp_wait_window)
         self.uuids = {}
         self.host = host
         self.port = port
         self.cmd_tout = cmd_tout
-        self.resp_wait_window = resp_wait_window
         self.offline_tout = offline_tout
         self.sock = socket(AF_INET, SOCK_STREAM)
         loop = asyncio.new_event_loop()
         loop.create_task(self.__process_user_input())
+        loop.create_task(self.db.check_if_pending())
         loop.create_task(self.__server_run())
         loop.run_forever()
 
     def __print_timeout_note(self):
-        print(f"The current timeout value for the commands to run on agents equal to {self. cmd_tout} seconds, this"
+        print(f"The current timeout value for the commands to run on agents equal to {self.cmd_tout} seconds, this"
               f" can be changed in commander.ini or right now. If you change it now it will be updated with the"
               f" value from commander.ini when commander is restarted.")
 
@@ -145,25 +145,6 @@ class BotCommander:
                     print_cmd_options()
                     continue
 
-    async def __schedule_command(self, command, cmd_filter, *args):
-        payload, json_dict = self.__json_builder(command, *args)
-        self.target_list = self.db.get_ids_of_online_agents(cmd_filter)
-        self.success_list = []
-        for elem in self.target_list:
-            uuid = elem
-            await asyncio.wait_for(self.__send_cmd_to_bot_agent(uuid, payload), timeout=60)
-        rows_changed = self.db.add_agent_events(self.success_list, command, json_dict.get("command"))
-        logger.core.debug(f"Events have been added for {len(self.success_list)} agents. Rows affected: {rows_changed}")
-
-    async def __send_cmd_to_bot_agent(self, uuid, payload):
-        try:
-            logger.core.debug(f'Sending payload {payload} to bot-agent {uuid}')
-            self.uuids[uuid]["writer"].write(payload)
-            self.success_list.append(uuid)
-        except Exception as err:
-            logger.core.error(f'Unexpected exception when writing stream {payload.decode("utf-8")} to bot-agent'
-                              f' {self.uuids.get(uuid)} - {err}')
-
     async def __exec_script(self):
         while True:
             print_script_help()
@@ -215,6 +196,38 @@ class BotCommander:
                 case _:
                     "Please choose from Y and N next time..."
 
+    async def __schedule_command(self, command, cmd_filter, *args):
+        payload, json_dict = self.__json_builder(command, *args)
+        self.target_list = self.db.get_ids_of_online_agents(cmd_filter)
+        self.success_list = []
+        for elem in self.target_list:
+            uuid = elem
+            await asyncio.wait_for(self.__send_cmd_to_bot_agent(uuid, payload), timeout=60)
+        rows_changed = self.db.add_agent_events(self.success_list, command, json_dict.get("command"))
+        logger.core.debug(f"Events have been added for {len(self.success_list)} agents. Rows affected: {rows_changed}")
+
+    async def __send_cmd_to_bot_agent(self, uuid, payload):
+        try:
+            logger.core.debug(f'Sending payload {payload} to bot-agent {uuid}')
+            self.uuids[uuid]["writer"].write(payload)
+            self.success_list.append(uuid)
+        except Exception as err:
+            logger.core.error(f'Unexpected exception when writing stream {payload.decode("utf-8")} to bot-agent'
+                              f' {self.uuids.get(uuid)} - {err}')
+
+    async def __read_line(self, reader, addr):
+        try:
+            buffer = await asyncio.wait_for(reader.readline(), timeout=self.offline_tout)
+        except TimeoutError:
+            logger.core.error(f"Timeout exceeded for bot-agent {addr}, no input stream received in the"
+                              f"last 200 seconds, setting bot-agent to offline, closing connection")
+            return False
+        except Exception as err:
+            logger.core.error(f"Unexpected exception when reading input stream from bot-agent {addr}: {err},"
+                              f" setting bot-agent to offline, closing connection")
+            return False
+        return buffer
+
     async def __read_buffer(self, reader, addr):
         buffer = await self.__read_line(reader, addr)
         if not buffer:
@@ -236,19 +249,6 @@ class BotCommander:
                 else:
                     buffer += more_data
         return data_list
-
-    async def __read_line(self, reader, addr):
-        try:
-            buffer = await asyncio.wait_for(reader.readline(), timeout=self.offline_tout)
-        except TimeoutError:
-            logger.core.error(f"Timeout exceeded for bot-agent {addr}, no input stream received in the"
-                              f"last 200 seconds, setting bot-agent to offline, closing connection")
-            return False
-        except Exception as err:
-            logger.core.error(f"Unexpected exception when reading input stream from bot-agent {addr}: {err},"
-                              f" setting bot-agent to offline, closing connection")
-            return False
-        return buffer
 
     async def __communicate_with_agent(self, reader, writer, addr, uuid):
         while True:
@@ -272,46 +272,20 @@ class BotCommander:
                 writer.close()
                 return
 
-    async def __handle_agent(self, reader, writer):
-        addr = writer.get_extra_info('peername')
-        logger.core.info(f"Connection accepted from peer {addr}")
-        agent_uuid = await self.__add_agent(reader, writer, addr)
-        if not agent_uuid:
-            writer.close()
-            return
-        asyncio.create_task(self.__communicate_with_agent(reader, writer, addr, agent_uuid))
-
-    async def __add_agent(self, reader, writer, addr):
-        data = await self.__read_buffer(reader, addr)
-        if data:
-            for json_item in data:
-                agent_uuid = self.__process_input_stream(json_item, addr, reader, writer)
-                if agent_uuid:
-                    payload, json_dict = self.__json_builder("botHostInfoReply")
-                    if payload:
-                        try:
-                            logger.core.debug(f'Sending botHostInfoReply to bot-agent {addr}-{agent_uuid}')
-                            writer.write(payload)
-                        except Exception as err:
-                            logger.core.error(f'Unexpected error when sending botHostInfoReply to bot-agent '
-                                              f'{addr}-{agent_uuid}: {err}. Closing connection, set agent to offline.')
-                            rows = self.db.set_agent_offline(agent_uuid)
-                            logger.core.debug(f"Row count for setting offline {agent_uuid}: {rows}")
-                            return
-                        return agent_uuid
-                    else:
-                        logger.core.error(f"Closing connection of bot-agent {addr}:{agent_uuid} as adding process was"
-                                          f" not successfully completed. Closing connection, set agent to offline")
-                        rows = self.db.set_agent_offline(agent_uuid)
-                        logger.core.debug(f"Row count for setting offline {agent_uuid}: {rows}")
-                        return
-                else:
-                    logger.core.error(f"Decoding of getHostInfoReply from peer {addr} has failed, failed to add"
-                                      f"bot-agent, closing connection")
-                    return
+    def __json_builder(self, message, *args):
+        if message in ["botHostInfoReply", "botHelloReply"]:
+            d = {"message": f"{message}"}
+        elif message == "exeCommand":
+            cmd, = args
+            d = {"message": f"{message}", "command": cmd, "timeout": self.cmd_tout}
+        elif message == "exeScript":
+            s_data, s_type, s_path = args
+            d = {"message": f"{message}", "script": s_path, "type": s_type, "timeout": self.cmd_tout, "command": s_data}
         else:
-            logger.core.info(f"Closing connection to peer {addr}")
-            return
+            logger.core.error(f"Json builder was not able to build {message}, unknown request: args: {args}")
+            return False
+        payload = json_serialize(d, message)
+        return payload, d
 
     def __process_input_stream(self, json_item, addr, reader, writer, uuid_in=None):
         logger.core.debug(f"Deserializing {json_item} received from bot-agent {addr}")
@@ -359,20 +333,46 @@ class BotCommander:
                                   f"{message}, commander cannot interpret this. Closing connection ")
                 return False
 
-    def __json_builder(self, message, *args):
-        if message in ["botHostInfoReply", "botHelloReply"]:
-            d = {"message": f"{message}"}
-        elif message == "exeCommand":
-            cmd, = args
-            d = {"message": f"{message}", "command": cmd, "timeout": self.cmd_tout}
-        elif message == "exeScript":
-            s_data, s_type, s_path = args
-            d = {"message": f"{message}", "script": s_path, "type": s_type, "timeout": self.cmd_tout, "command": s_data}
+    async def __add_agent(self, reader, writer, addr):
+        data = await self.__read_buffer(reader, addr)
+        if data:
+            for json_item in data:
+                agent_uuid = self.__process_input_stream(json_item, addr, reader, writer)
+                if agent_uuid:
+                    payload, json_dict = self.__json_builder("botHostInfoReply")
+                    if payload:
+                        try:
+                            logger.core.debug(f'Sending botHostInfoReply to bot-agent {addr}-{agent_uuid}')
+                            writer.write(payload)
+                        except Exception as err:
+                            logger.core.error(f'Unexpected error when sending botHostInfoReply to bot-agent '
+                                              f'{addr}-{agent_uuid}: {err}. Closing connection, set agent to offline.')
+                            rows = self.db.set_agent_offline(agent_uuid)
+                            logger.core.debug(f"Row count for setting offline {agent_uuid}: {rows}")
+                            return
+                        return agent_uuid
+                    else:
+                        logger.core.error(f"Closing connection of bot-agent {addr}:{agent_uuid} as adding process was"
+                                          f" not successfully completed. Closing connection, set agent to offline")
+                        rows = self.db.set_agent_offline(agent_uuid)
+                        logger.core.debug(f"Row count for setting offline {agent_uuid}: {rows}")
+                        return
+                else:
+                    logger.core.error(f"Decoding of getHostInfoReply from peer {addr} has failed, failed to add"
+                                      f"bot-agent, closing connection")
+                    return
         else:
-            logger.core.error(f"Json builder was not able to build {message}, unknown request: args: {args}")
-            return False
-        payload = json_serialize(d, message)
-        return payload, d
+            logger.core.info(f"Closing connection to peer {addr}")
+            return
+
+    async def __handle_agent(self, reader, writer):
+        addr = writer.get_extra_info('peername')
+        logger.core.info(f"Connection accepted from peer {addr}")
+        agent_uuid = await self.__add_agent(reader, writer, addr)
+        if not agent_uuid:
+            writer.close()
+            return
+        asyncio.create_task(self.__communicate_with_agent(reader, writer, addr, agent_uuid))
 
     async def __server_run(self):
         server = await asyncio.start_server(self.__handle_agent, self.host, self.port)
@@ -387,5 +387,5 @@ class BotCommander:
 if __name__ == "__main__":
     HOST, PORT, LOG_LEVEL, LOG_DIR, LOG_NAME, OFFLINE_TOUT, CMD_TOUT, RESP_WAIT_WINDOW = load_conf()
     logger = Logger(LOG_LEVEL, LOG_DIR, LOG_NAME)
-    srv = BotCommander(HOST, PORT, OFFLINE_TOUT, CMD_TOUT)
+    srv = BotCommander(HOST, PORT, OFFLINE_TOUT, CMD_TOUT, RESP_WAIT_WINDOW)
     logger.core.info("Botnet-Commander exited")
