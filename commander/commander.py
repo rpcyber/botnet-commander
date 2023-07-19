@@ -33,7 +33,7 @@ def load_conf():
 
 class BotCommander:
     def __init__(self, host, port, offline_tout, cmd_tout, resp_wait_window):
-        self.db = CommanderDatabase(resp_wait_window)
+        self.db = CommanderDatabase(resp_wait_window, logger)
         self.uuids = {}
         self.host = host
         self.port = port
@@ -203,8 +203,7 @@ class BotCommander:
         for elem in self.target_list:
             uuid = elem
             await asyncio.wait_for(self.__send_cmd_to_bot_agent(uuid, payload), timeout=60)
-        rows_changed = self.db.add_agent_events(self.success_list, command, json_dict.get("command"))
-        logger.core.debug(f"Events have been added for {len(self.success_list)} agents. Rows affected: {rows_changed}")
+        self.db.add_agent_events(self.success_list, command, json_dict.get("command"))
 
     async def __send_cmd_to_bot_agent(self, uuid, payload):
         try:
@@ -213,18 +212,18 @@ class BotCommander:
             self.success_list.append(uuid)
         except Exception as err:
             logger.core.error(f'Unexpected exception when writing stream {payload.decode("utf-8")} to bot-agent'
-                              f' {self.uuids.get(uuid)} - {err}')
+                              f' {self.uuids.get(uuid)} - {err}', exc_info=True)
 
     async def __read_line(self, reader, addr):
         try:
             buffer = await asyncio.wait_for(reader.readline(), timeout=self.offline_tout)
         except TimeoutError:
             logger.core.error(f"Timeout exceeded for bot-agent {addr}, no input stream received in the"
-                              f"last 200 seconds, setting bot-agent to offline, closing connection")
+                              f"last 200 seconds, setting bot-agent to offline, closing connection", exc_info=True)
             return False
         except Exception as err:
             logger.core.error(f"Unexpected exception when reading input stream from bot-agent {addr}: {err},"
-                              f" setting bot-agent to offline, closing connection")
+                              f" setting bot-agent to offline, closing connection", exc_info=True)
             return False
         return buffer
 
@@ -259,14 +258,14 @@ class BotCommander:
                         continue
                     else:
                         logger.core.error(f"Processing input stream from bot-agent {addr}-{uuid} has failed. Closing "
-                                          f"connection and setting agent to offline")
+                                          f"connection and setting agent to offline", exc_info=True)
                         rows = self.db.set_agent_offline(uuid)
                         logger.core.debug(f"Row count for setting offline {uuid}: {rows}")
                         writer.close()
                         return
             else:
                 logger.core.error(f"EOF received reading input stream from bot-agent {addr}-{uuid}. Closing connection "
-                                  f"and setting agent to offline")
+                                  f"and setting agent to offline", exc_info=True)
                 rows = self.db.set_agent_offline(uuid)
                 logger.core.debug(f"Row count for setting offline {uuid}: {rows}")
                 writer.close()
@@ -282,7 +281,8 @@ class BotCommander:
             s_data, s_type, s_path = args
             d = {"message": f"{message}", "script": s_path, "type": s_type, "timeout": self.cmd_tout, "command": s_data}
         else:
-            logger.core.error(f"Json builder was not able to build {message}, unknown request: args: {args}")
+            logger.core.error(f"Json builder was not able to build {message}, unknown request: args: {args}",
+                              exc_info=True)
             return False
         payload = json_serialize(d, message)
         return payload, d
@@ -297,7 +297,7 @@ class BotCommander:
             case "botHostInfo":
                 uuid = json_msg.get("uuid")
                 if self.db.agent_exists(uuid):
-                    logger.core.debug(f'Agent {addr} with UUID {uuid} already present in DB.')
+                    logger.core.info(f'Agent {addr} with UUID {uuid} already present in DB.')
                     rows = self.db.set_agent_online(uuid)
                     logger.core.debug(f'Agent {addr}-{uuid} is now set to online. Row count: {rows}')
                     self.uuids[uuid] = {"reader": reader, "writer": writer}
@@ -317,7 +317,8 @@ class BotCommander:
                         logger.core.debug(f"Sending botHelloReply to bot-agent {addr}-{uuid_in}")
                         writer.write(payload)
                     except Exception as err:
-                        logger.core.error(f"Unexpected exception sending botHelloReply to bot-agent {addr}-{uuid_in}: {err}")
+                        logger.core.error(f"Unexpected exception sending botHelloReply to bot-agent "
+                                          f"{addr}-{uuid_in}: {err}", exc_info=True)
                         return False
                     return True
                 else:
@@ -330,7 +331,7 @@ class BotCommander:
                 return True
             case _:
                 logger.core.error(f"Processing of message received from bot-agent {addr} has failed, unknown message: "
-                                  f"{message}, commander cannot interpret this. Closing connection ")
+                                  f"{message}, commander cannot interpret this. Closing connection ", exc_info=True)
                 return False
 
     async def __add_agent(self, reader, writer, addr):
@@ -346,20 +347,22 @@ class BotCommander:
                             writer.write(payload)
                         except Exception as err:
                             logger.core.error(f'Unexpected error when sending botHostInfoReply to bot-agent '
-                                              f'{addr}-{agent_uuid}: {err}. Closing connection, set agent to offline.')
+                                              f'{addr}-{agent_uuid}: {err}. Closing connection, set agent to offline.',
+                                              exc_info=True)
                             rows = self.db.set_agent_offline(agent_uuid)
                             logger.core.debug(f"Row count for setting offline {agent_uuid}: {rows}")
                             return
                         return agent_uuid
                     else:
                         logger.core.error(f"Closing connection of bot-agent {addr}:{agent_uuid} as adding process was"
-                                          f" not successfully completed. Closing connection, set agent to offline")
+                                          f" not successfully completed. Closing connection, set agent to offline",
+                                          exc_info=True)
                         rows = self.db.set_agent_offline(agent_uuid)
                         logger.core.debug(f"Row count for setting offline {agent_uuid}: {rows}")
                         return
                 else:
                     logger.core.error(f"Decoding of getHostInfoReply from peer {addr} has failed, failed to add"
-                                      f"bot-agent, closing connection")
+                                      f"bot-agent, closing connection", exc_info=True)
                     return
         else:
             logger.core.info(f"Closing connection to peer {addr}")

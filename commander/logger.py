@@ -19,6 +19,6 @@ class Logger:
                 exit(4)
         self.fh = logging.FileHandler(self.log_path)
         self.fh.setLevel(log_level)
-        self.log_formatter = logging.Formatter('%(asctime)s - [%(name)s]::%(levelname)s - %(message)s')
+        self.log_formatter = logging.Formatter('%(asctime)s - %(name)s::%(module)s - %(levelname)s - %(message)s')
         self.fh.setFormatter(self.log_formatter)
         self.core.addHandler(self.fh)
