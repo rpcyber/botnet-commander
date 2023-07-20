@@ -86,7 +86,7 @@ class BotCommander:
                 case 2:
                     await self.__exec_script()
                 case 3:
-                    self.loop.stop()
+                    asyncio.create_task(self.shutdown(signal.SIGTERM, asyncio.get_event_loop()))
                 case _:
                     print("Please insert a digit corresponding to one of the available options: 1 or 2")
 
