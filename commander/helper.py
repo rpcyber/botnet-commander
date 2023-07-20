@@ -11,6 +11,7 @@ def print_help():
     The following options are available:
     1) Execute shell/cmd commands
     2) Execute script
+    3) Shutdown Commander
     ''')
 
 

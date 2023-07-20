@@ -1,4 +1,5 @@
 import os
+import signal
 import asyncio
 import configparser
 from pathlib import Path
@@ -40,11 +41,7 @@ class BotCommander:
         self.cmd_tout = cmd_tout
         self.offline_tout = offline_tout
         self.sock = socket(AF_INET, SOCK_STREAM)
-        loop = asyncio.new_event_loop()
-        loop.create_task(self.__process_user_input())
-        loop.create_task(self.db.check_if_pending())
-        loop.create_task(self.__server_run())
-        loop.run_forever()
+        self.main()
 
     def __print_timeout_note(self):
         print(f"The current timeout value for the commands to run on agents equal to {self.cmd_tout} seconds, this"
@@ -88,6 +85,8 @@ class BotCommander:
                     await self.__exec_shell_cmd()
                 case 2:
                     await self.__exec_script()
+                case 3:
+                    self.loop.stop()
                 case _:
                     print("Please insert a digit corresponding to one of the available options: 1 or 2")
 
@@ -385,6 +384,35 @@ class BotCommander:
 
         async with server:
             await server.serve_forever()
+
+    @staticmethod
+    async def shutdown(s, loop):
+        """Cleanup tasks tied to the service's shutdown."""
+        logger.core.info(f"Received exit signal {s.name}...")
+        logger.core.info("Closing database connections")
+        tasks = [t for t in asyncio.all_tasks() if t is not
+                 asyncio.current_task()]
+
+        [task.cancel() for task in tasks]
+
+        logger.core.info(f"Cancelling {len(tasks)} outstanding tasks")
+        await asyncio.gather(*tasks)
+        loop.stop()
+
+    def main(self):
+        loop = asyncio.new_event_loop()
+        signals = (signal.SIGHUP, signal.SIGTERM, signal.SIGINT)
+        for s in signals:
+            loop.add_signal_handler(
+                s, lambda s=s: asyncio.create_task(self.shutdown(s, loop)))
+        try:
+            loop.create_task(self.__process_user_input())
+            loop.create_task(self.db.check_if_pending())
+            loop.create_task(self.__server_run())
+            loop.run_forever()
+        finally:
+            loop.close()
+            logger.core.info("Successfully shutdown Commander.")
 
 
 if __name__ == "__main__":
