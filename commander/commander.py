@@ -1,4 +1,5 @@
 import os
+import sys
 import signal
 import asyncio
 import configparser
@@ -74,7 +75,7 @@ class BotCommander:
     async def __process_user_input(self):
         while True:
             print_help()
-            msg = "Please insert a digit corresponding to one of the available options, 1 or 2: "
+            msg = "Please insert a digit corresponding to one of the available options: 1, 2 or 3: "
             choice = await asyncio.get_running_loop().run_in_executor(None, get_user_input, msg)
             val = check_if_number(choice)
             if not val:
@@ -87,6 +88,8 @@ class BotCommander:
                     await self.__exec_script()
                 case 3:
                     asyncio.create_task(self.shutdown(signal.SIGTERM, asyncio.get_event_loop()))
+                    print("\nExiting Commander CLI...\nGoodbye!")
+                    break
                 case _:
                     print("Please insert a digit corresponding to one of the available options: 1 or 2")
 
@@ -387,16 +390,16 @@ class BotCommander:
 
     @staticmethod
     async def shutdown(s, loop):
-        """Cleanup tasks tied to the service's shutdown."""
         logger.core.info(f"Received exit signal {s.name}...")
-        logger.core.info("Closing database connections")
+        logger.core.info("Closing all connections to agents")
+
         tasks = [t for t in asyncio.all_tasks() if t is not
                  asyncio.current_task()]
 
         [task.cancel() for task in tasks]
 
-        logger.core.info(f"Cancelling {len(tasks)} outstanding tasks")
-        await asyncio.gather(*tasks)
+        logger.core.info(f"Cancelling {len(tasks)} running tasks")
+        await asyncio.gather(*tasks, return_exceptions=True)
         loop.stop()
 
     def main(self):
@@ -413,6 +416,7 @@ class BotCommander:
         finally:
             loop.close()
             logger.core.info("Successfully shutdown Commander.")
+            sys.exit()
 
 
 if __name__ == "__main__":
