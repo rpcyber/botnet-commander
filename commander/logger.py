@@ -2,9 +2,9 @@ import logging
 from os import path
 
 
-class CoreLogger:
+class Logger:
     def __init__(self, log_level, log_dir, log_name):
-        self.core = logging.getLogger("CORE")
+        self.core = logging.getLogger("Commander")
         self.core.setLevel(log_level)
         self.log_path = path.join(log_dir, log_name)
         if not path.isfile(self.log_path):
@@ -19,6 +19,6 @@ class CoreLogger:
                 exit(4)
         self.fh = logging.FileHandler(self.log_path)
         self.fh.setLevel(log_level)
-        self.log_formatter = logging.Formatter('%(asctime)s - [%(name)s]::%(levelname)s - %(message)s')
+        self.log_formatter = logging.Formatter('%(asctime)s - %(name)s::%(module)s - %(levelname)s - %(message)s')
         self.fh.setFormatter(self.log_formatter)
         self.core.addHandler(self.fh)

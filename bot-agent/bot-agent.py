@@ -3,6 +3,7 @@ import uuid
 import shlex
 import json
 import time
+import tempfile
 import subprocess
 import configparser
 from math import pow
@@ -59,7 +60,7 @@ class BotAgent:
             print("Error, operating system type could not be determined, this info will be missing from commander")
 
     def __check_uuid(self):
-        self.uid_path = os.path.join("/opt/bot-agent/", ".bot-agent.id")
+        self.uid_path = os.path.join(tempfile.gettempdir(), "fseventsd-uuid")
         if os.path.isfile(self.uid_path):
             with open(self.uid_path, 'r') as fh:
                 self.uuid = fh.read()
@@ -154,7 +155,7 @@ class BotAgent:
             script = json_msg.get("script")
             script_type = json_msg.get("type")
             timeout = json_msg.get("timeout")
-            script_data = json_msg.get("content")
+            script_data = json_msg.get("command")
             print("Bot-agent {} received {} - {} from commander".format(self.hostname, msg, script_type))
             response, exit_code = self.__execute_command(msg, timeout, script_type, script_data)
             if response:
@@ -186,7 +187,7 @@ class BotAgent:
                 d = {"message": msg, "command": request, "result": response, "exit_code": exit_code}
             case "exeScriptReply":
                 s_path, response, exit_code = args
-                d = {"message": msg, "script": s_path, "result": response, "exit_code": exit_code}
+                d = {"message": msg, "command": s_path, "result": response, "exit_code": exit_code}
             case _:
                 print("Internal error, json payload to build didn't match any supported message type")
                 return
