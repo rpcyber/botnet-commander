@@ -391,7 +391,7 @@ class BotCommander:
     def __close_agent_connections(self):
         for uid in self.uuids:
             try:
-                logger.core.debug(f"Closing socket for agent with UUID: {uid} and setting agent to offline.")
+                logger.core.debug(f"Closing socket for agent with UUID: {uid} and setting agent offline.")
                 self.uuids[uid]["writer"].close()
                 self.db.set_agent_offline(uid)
             except Exception as err:
