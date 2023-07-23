@@ -1,7 +1,9 @@
 import os
+import sys
 import time
 import sqlite3
 import asyncio
+import traceback
 
 
 class CommanderDatabase:
@@ -19,13 +21,20 @@ class CommanderDatabase:
     def query_wrapper(self, sql_method, sql_type, query, params=()):
         with sqlite3.connect(self.db_fp) as con:
             cur = con.cursor()
-            match sql_method:
-                case "executemany":
-                    cur.executemany(query, params)
-                case "execute":
-                    cur.execute(query, params)
-                case "executescript":
-                    cur.executescript(query)
+            try:
+                match sql_method:
+                    case "executemany":
+                        cur.executemany(query, params)
+                    case "execute":
+                        cur.execute(query, params)
+                    case "executescript":
+                        cur.executescript(query)
+            except sqlite3.Error as er:
+                self.logger.core.error(f"SQLite error: {er.args}")
+                self.logger.core.error("SQLite exception class is: ", er.__class__)
+                self.logger.core.error('SQLite traceback: ')
+                exc_type, exc_value, exc_tb = sys.exc_info()
+                self.logger.core.error(traceback.format_exception(exc_type, exc_value, exc_tb))
             match sql_type:
                 case "INSERT" | "UPDATE" | "DELETE":
                     output = cur.rowcount
@@ -45,7 +54,18 @@ class CommanderDatabase:
             (count INTEGER PRIMARY KEY AUTOINCREMENT, time TEXT, id TEXT, event TEXT, event_detail TEXT, response TEXT,
              exit_code TEXT, FOREIGN KEY (id) REFERENCES BotAgents (id));
             ''')
-        return self.query_wrapper("executescript", "CREATE", query)
+        self.query_wrapper("executescript", "CREATE", query)
+        self.set_all_agents_offline()
+
+    def set_all_agents_offline(self):
+        """
+        Purpose of this is to ensure that when Commander starts no agent will be online. In theory no agent can be
+        online when commander starts because there is a method called in case of shutdown but if a crash occurs and
+        that method doesn't execute completely there is a chance that in DB agents are still online when they shouldn't
+        :return: None
+        """
+        query = "UPDATE BotAgents SET online=0 WHERE online=1"
+        return self.query_wrapper("execute", "UPDATE", query)
 
     def add_agent(self, uuid, hostname, address, online, os_type):
         address_socket = f'{address[0]}:{address[1]}'
