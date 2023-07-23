@@ -431,4 +431,3 @@ if __name__ == "__main__":
     HOST, PORT, LOG_LEVEL, LOG_DIR, LOG_NAME, OFFLINE_TOUT, CMD_TOUT, RESP_WAIT_WINDOW = load_conf()
     logger = Logger(LOG_LEVEL, LOG_DIR, LOG_NAME)
     srv = BotCommander(HOST, PORT, OFFLINE_TOUT, CMD_TOUT, RESP_WAIT_WINDOW)
-    logger.core.info("Botnet-Commander exited")
