@@ -1,8 +1,10 @@
 import os
+import sys
 import uuid
-import shlex
 import json
 import time
+import shlex
+import signal
 import tempfile
 import subprocess
 import configparser
@@ -224,6 +226,8 @@ class BotAgent:
                         continue
                     else:
                         self.__self_identify()
+            else:
+                time.sleep(self.hello_freq)
 
     def __execute_command(self, cmd_type, timeout, *args):
         popen_payload = []
@@ -345,6 +349,20 @@ class BotAgent:
         return buffer
 
 
+class GracefulKiller:
+    kill_now = False
+
+    def __init__(self):
+        signal.signal(signal.SIGINT, self.exit_gracefully)
+        signal.signal(signal.SIGTERM, self.exit_gracefully)
+
+    def exit_gracefully(self, *args):
+        self.kill_now = True
+        print("Bot-Agent is shutting down")
+        sys.exit()
+
+
 if __name__ == "__main__":
+    killer = GracefulKiller()
     HOST, PORT, MAX_RECONN, CONN_BUFF, IDLE_TIMEOUT, RECV_TOUT, HELLO_FREQ = load_conf()
     client = BotAgent(HOST, PORT, MAX_RECONN, IDLE_TIMEOUT, CONN_BUFF, RECV_TOUT, HELLO_FREQ)
