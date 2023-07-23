@@ -388,11 +388,19 @@ class BotCommander:
         async with server:
             await server.serve_forever()
 
-    @staticmethod
-    async def shutdown(s, loop):
+    def __close_agent_connections(self):
+        for uid in self.uuids:
+            try:
+                logger.core.debug(f"Closing socket for agent with UUID: {uid} and setting agent to offline.")
+                self.uuids[uid]["writer"].close()
+                self.db.set_agent_offline(uid)
+            except Exception as err:
+                logger.core.error(f"Unexpected exception when closing socket for agent {uid}: {err}")
+
+    async def shutdown(self, s, loop):
         logger.core.info(f"Received exit signal {s.name}...")
         logger.core.info("Closing all connections to agents")
-
+        self.__close_agent_connections()
         tasks = [t for t in asyncio.all_tasks() if t is not
                  asyncio.current_task()]
 
