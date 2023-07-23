@@ -115,5 +115,5 @@ class CommanderDatabase:
         while True:
             await asyncio.sleep(self.resp_wait_window)
             query = 'SELECT EXISTS(SELECT 1 FROM CommandHistory WHERE response is null)'
-            if self.query_wrapper("execute", "SELECT", query)[0] and self.bulk_response:
+            if self.bulk_response and self.query_wrapper("execute", "SELECT", query)[0]:
                 await asyncio.get_running_loop().run_in_executor(None, self.add_event_responses)
