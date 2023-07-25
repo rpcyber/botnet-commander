@@ -393,9 +393,9 @@ class BotCommander:
             try:
                 logger.core.debug(f"Closing socket for agent with UUID: {uid} and setting agent offline.")
                 self.uuids[uid]["writer"].close()
-                self.db.set_agent_offline(uid)
             except Exception as err:
                 logger.core.error(f"Unexpected exception when closing socket for agent {uid}: {err}")
+        self.db.set_all_agents_offline()
 
     async def shutdown(self, s, loop):
         logger.core.info(f"Received exit signal {s.name}...")
