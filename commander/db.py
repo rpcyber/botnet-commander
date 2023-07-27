@@ -35,6 +35,8 @@ class CommanderDatabase:
                 self.logger.core.error('SQLite traceback: ')
                 exc_type, exc_value, exc_tb = sys.exc_info()
                 self.logger.core.error(traceback.format_exception(exc_type, exc_value, exc_tb))
+                cur.close()
+                con.commit()
             match sql_type:
                 case "INSERT" | "UPDATE" | "DELETE":
                     output = cur.rowcount
@@ -116,4 +118,4 @@ class CommanderDatabase:
             await asyncio.sleep(self.resp_wait_window)
             query = 'SELECT EXISTS(SELECT 1 FROM CommandHistory WHERE response is null)'
             if self.bulk_response and self.query_wrapper("execute", "SELECT", query)[0]:
-                await asyncio.get_running_loop().run_in_executor(None, self.add_event_responses)
+                self.add_event_responses()
