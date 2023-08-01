@@ -21,6 +21,7 @@ class CommanderDatabase:
     def query_wrapper(self, sql_method, sql_type, query, params=()):
         with sqlite3.connect(self.db_fp) as con:
             cur = con.cursor()
+            start = time.time()
             try:
                 match sql_method:
                     case "executemany":
@@ -46,6 +47,7 @@ class CommanderDatabase:
                     output = None
             cur.close()
             con.commit()
+        self.logger.core.info(f"Query {query}executed in {time.time() - start} seconds")
         return output
 
     def db_init(self):
