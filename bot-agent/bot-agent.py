@@ -145,10 +145,11 @@ class BotAgent:
         elif msg == "exeCommand":
             cmd = json_msg.get("command")
             timeout = json_msg.get("timeout")
+            cmd_id = json_msg.get("cmd_id")
             print("Bot-agent {} received {} - {} from commander".format(self.hostname, msg, cmd))
             response, exit_code = self.__execute_command(msg, timeout, cmd)
             if response:
-                payload = self.__build_json_payload("exeCommandReply", cmd, response, exit_code)
+                payload = self.__build_json_payload("exeCommandReply", cmd, cmd_id, response, exit_code)
                 if not payload or not self.__send_command(payload, json_msg):
                     return
             else:
@@ -157,11 +158,12 @@ class BotAgent:
             script = json_msg.get("script")
             script_type = json_msg.get("type")
             timeout = json_msg.get("timeout")
+            cmd_id = json_msg.get("cmd_id")
             script_data = json_msg.get("command")
             print("Bot-agent {} received {} - {} from commander".format(self.hostname, msg, script_type))
             response, exit_code = self.__execute_command(msg, timeout, script_type, script_data)
             if response:
-                payload = self.__build_json_payload("exeScriptReply", script, response, exit_code)
+                payload = self.__build_json_payload("exeScriptReply", script, cmd_id, response, exit_code)
                 if not payload or not self.__send_command(payload, json_msg):
                     return
             else:
@@ -185,11 +187,11 @@ class BotAgent:
             case "botHello":
                 d = {"message": msg}
             case "exeCommandReply":
-                request, response, exit_code = args
-                d = {"message": msg, "command": request, "result": response, "exit_code": exit_code}
+                request, cmd_id, response, exit_code = args
+                d = {"message": msg, "command": request, "cmd_id": cmd_id, "result": response, "exit_code": exit_code}
             case "exeScriptReply":
-                s_path, response, exit_code = args
-                d = {"message": msg, "command": s_path, "result": response, "exit_code": exit_code}
+                s_path, cmd_id, response, exit_code = args
+                d = {"message": msg, "command": s_path, "cmd_id": cmd_id, "result": response, "exit_code": exit_code}
             case _:
                 print("Internal error, json payload to build didn't match any supported message type")
                 return

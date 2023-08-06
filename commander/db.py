@@ -47,7 +47,7 @@ class CommanderDatabase:
                     output = None
             cur.close()
             con.commit()
-        self.logger.core.info(f"Query {query}executed in {time.time() - start} seconds")
+        self.logger.core.info(f"Query {query}executed in {(time.time() - start) * 1000} ms")
         return output
 
     def db_init(self):
@@ -98,6 +98,10 @@ class CommanderDatabase:
             query = "SELECT id FROM BotAgents WHERE online=?"
             return self.query_wrapper("execute", "SELECT", query, params=['1'])
 
+    def get_last_row_id(self):
+        query = "SELECT count FROM CommandHistory ORDER BY count DESC LIMIT 1"
+        return self.query_wrapper("execute", "SELECT", query)[0]
+
     def add_agent_events(self, uuid_list, event, event_detail):
         data = list(zip([time.time(), ] * len(uuid_list), uuid_list, [event, ] * len(uuid_list), [event_detail, ] * len(uuid_list)))
         query = "INSERT INTO CommandHistory(time, id, event, event_detail) VALUES (?, ?, ?, ?)"
@@ -105,12 +109,7 @@ class CommanderDatabase:
         self.logger.core.debug(f"Events have been added for agents. Rows affected: {rows_affected}")
 
     def add_event_responses(self):
-        query = "WITH Tmp(id, event_detail, response_new, exit_code_new) AS (VALUES(?, ?, ?, ?)) " \
-                "UPDATE CommandHistory SET response = (SELECT response_new FROM Tmp WHERE CommandHistory.id = Tmp.id " \
-                "AND CommandHistory.event_detail = Tmp.event_detail AND CommandHistory.response is null), " \
-                "exit_code = (SELECT exit_code_new FROM Tmp WHERE CommandHistory.id = Tmp.id AND " \
-                "CommandHistory.event_detail = Tmp.event_detail AND CommandHistory.response is null )" \
-                "WHERE id IN (SELECT id FROM Tmp)"
+        query = "UPDATE CommandHistory SET (response, exit_code) = (?, ?) WHERE count = ?"
         rows_affected = self.query_wrapper("executemany", "UPDATE", query, params=self.bulk_response)
         self.logger.core.debug(f"Event responses have been added to DB, number of rows updated: {rows_affected}")
         self.bulk_response = []

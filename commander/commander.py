@@ -199,13 +199,14 @@ class BotCommander:
                     "Please choose from Y and N next time..."
 
     async def __schedule_command(self, command, cmd_filter, *args):
-        payload, json_dict = self.__json_builder(command, *args)
         self.target_list = self.db.get_ids_of_online_agents(cmd_filter)
+        json_dict = self.__json_builder(command, *args)
+        index_offset = self.db.get_last_row_id() + 1
+        self.db.add_agent_events(self.target_list, command, json_dict.get("command"))
         self.success_list = []
-        for elem in self.target_list:
-            uuid = elem
-            await asyncio.wait_for(self.__send_cmd_to_bot_agent(uuid, payload), timeout=60)
-        self.db.add_agent_events(self.success_list, command, json_dict.get("command"))
+        for index, uuid in enumerate(self.target_list):
+            json_dict["cmd_id"] = index + index_offset
+            await asyncio.wait_for(self.__send_cmd_to_bot_agent(uuid, json_serialize(json_dict)), timeout=60)
 
     async def __send_cmd_to_bot_agent(self, uuid, payload):
         try:
@@ -286,8 +287,7 @@ class BotCommander:
             logger.core.error(f"Json builder was not able to build {message}, unknown request: args: {args}",
                               exc_info=True)
             return False
-        payload = json_serialize(d, message)
-        return payload, d
+        return d
 
     def __process_input_stream(self, json_item, addr, reader, writer, uuid_in=None):
         logger.core.debug(f"Deserializing {json_item} received from bot-agent {addr}")
@@ -313,7 +313,8 @@ class BotCommander:
                     logger.core.debug(f"Affected rows by adding agent {hostname}-{uuid} : {rows} row")
                     return uuid
             case "botHello":
-                payload, json_dict = self.__json_builder("botHelloReply")
+                json_dict = self.__json_builder("botHelloReply")
+                payload = json_serialize(json_dict)
                 if payload:
                     try:
                         logger.core.debug(f"Sending botHelloReply to bot-agent {addr}-{uuid_in}")
@@ -326,10 +327,10 @@ class BotCommander:
                 else:
                     return False
             case "exeCommandReply" | "exeScriptReply":
-                command = json_msg.get("command")
+                cmd_id = json_msg.get("cmd_id")
                 result = json_msg.get("result")
                 exit_code = json_msg.get("exit_code")
-                self.db.bulk_response.append((uuid_in, command, result, exit_code))
+                self.db.bulk_response.append((result, exit_code, cmd_id))
                 return True
             case _:
                 logger.core.error(f"Processing of message received from bot-agent {addr} has failed, unknown message: "
@@ -342,7 +343,8 @@ class BotCommander:
             for json_item in data:
                 agent_uuid = self.__process_input_stream(json_item, addr, reader, writer)
                 if agent_uuid:
-                    payload, json_dict = self.__json_builder("botHostInfoReply")
+                    json_dict = self.__json_builder("botHostInfoReply")
+                    payload = json_serialize(json_dict)
                     if payload:
                         try:
                             logger.core.debug(f'Sending botHostInfoReply to bot-agent {addr}-{agent_uuid}')
