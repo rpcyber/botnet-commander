@@ -69,11 +69,11 @@ def json_deserialize(data, addr, uuid):
     return json_item
 
 
-def json_serialize(data, message):
+def json_serialize(data):
     try:
         payload = (json.dumps(data) + "\n").encode("utf-8")
     except Exception as err:
-        logger.error(f"Unexpected error while serializing {message} message: {err}")
+        logger.error(f"Unexpected error while serializing {data.get('message')} message: {err}")
         return False
     return payload
 
