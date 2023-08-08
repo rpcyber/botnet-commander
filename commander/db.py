@@ -15,8 +15,11 @@ class CommanderDatabase:
         self.db_fp = os.path.join(self.db_path, self.db_name)
         self.resp_wait_window = resp_wait_window
         self.bulk_response = []
-        self.pending = False
         self.db_init()
+
+    def _start_check_pending_task(self):
+        loop = asyncio.get_running_loop()
+        self.check_pending_task = loop.create_task(self.check_if_pending())
 
     def query_wrapper(self, sql_method, sql_type, query, params=()):
         with sqlite3.connect(self.db_fp) as con:
@@ -107,6 +110,8 @@ class CommanderDatabase:
         query = "INSERT INTO CommandHistory(time, id, event, event_detail) VALUES (?, ?, ?, ?)"
         rows_affected = self.query_wrapper("executemany", "INSERT", query, params=data)
         self.logger.core.debug(f"Events have been added for agents. Rows affected: {rows_affected}")
+        self.logger.core.debug(f"There are {rows_affected} pending responses. Starting check if pending task")
+        self._start_check_pending_task()
 
     def add_event_responses(self):
         query = "UPDATE CommandHistory SET (response, exit_code) = (?, ?) WHERE count = ?"
@@ -120,3 +125,6 @@ class CommanderDatabase:
             query = 'SELECT EXISTS(SELECT 1 FROM CommandHistory WHERE response is null)'
             if self.bulk_response and self.query_wrapper("execute", "SELECT", query)[0]:
                 self.add_event_responses()
+            else:
+                self.logger.core.debug(f"There are no pending requests waiting for agents response. Canceling task")
+                self.check_pending_task.cancel()

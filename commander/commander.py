@@ -420,7 +420,7 @@ class BotCommander:
                 s, lambda s=s: asyncio.create_task(self.shutdown(s, loop)))
         try:
             loop.create_task(self.__process_user_input())
-            loop.create_task(self.db.check_if_pending())
+            self.db.check_pending_task = loop.create_task(self.db.check_if_pending())
             loop.create_task(self.__server_run())
             loop.run_forever()
         finally:
