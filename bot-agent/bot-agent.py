@@ -214,9 +214,6 @@ class BotAgent:
                     self.__self_identify()
             try:
                 data = self.__read_buffer()
-            except TimeoutError:
-                print("Bot-agent {} has not received any request from commander in the past {} seconds. Still waiting".
-                      format(self.hostname, self.recv_tout))
             except Exception as err:
                 print("Unexpected error on bot-agent {} when reading input stream from commander, error: {}".
                       format(self.hostname, err))
@@ -305,6 +302,7 @@ class BotAgent:
         payload = self.__build_json_payload("botHello")
         if payload:
             try:
+                print("Sending botHello to Commander to maintain keepalive")
                 self.sock.sendall(payload)
                 self.last_online = time.time()
             except Exception as err:
