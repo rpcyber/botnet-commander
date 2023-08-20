@@ -22,34 +22,38 @@ class CommanderDatabase:
         self.check_pending_task = loop.create_task(self.check_if_pending())
 
     def query_wrapper(self, sql_method, sql_type, query, params=()):
-        with sqlite3.connect(self.db_fp) as con:
-            cur = con.cursor()
-            start = time.time()
-            try:
-                match sql_method:
-                    case "executemany":
-                        cur.executemany(query, params)
-                    case "execute":
-                        cur.execute(query, params)
-                    case "executescript":
-                        cur.executescript(query)
-            except sqlite3.Error as er:
-                self.logger.core.error(f"SQLite error: {er.args}")
-                self.logger.core.error("SQLite exception class is: ", er.__class__)
-                self.logger.core.error('SQLite traceback: ')
-                exc_type, exc_value, exc_tb = sys.exc_info()
-                self.logger.core.error(traceback.format_exception(exc_type, exc_value, exc_tb))
-                cur.close()
-                con.commit()
-            match sql_type:
-                case "INSERT" | "UPDATE" | "DELETE":
-                    output = cur.rowcount
-                case "SELECT":
-                    output = [x[0] for x in cur.fetchall()]
-                case "CREATE":
-                    output = None
+        con = sqlite3.connect(database=self.db_fp)
+        cur = con.cursor()
+        cur.execute("pragma journal_mode = WAL")
+        cur.execute("pragma synchronous = normal")
+        cur.execute("pragma temp_store = memory")
+        cur.execute("pragma mmap_size = 30000000000")
+        start = time.time()
+        try:
+            match sql_method:
+                case "executemany":
+                    cur.executemany(query, params)
+                case "execute":
+                    cur.execute(query, params)
+                case "executescript":
+                    cur.executescript(query)
+        except sqlite3.Error as er:
+            self.logger.core.error(f"SQLite error: {er.args}")
+            self.logger.core.error("SQLite exception class is: ", er.__class__)
+            self.logger.core.error('SQLite traceback: ')
+            exc_type, exc_value, exc_tb = sys.exc_info()
+            self.logger.core.error(traceback.format_exception(exc_type, exc_value, exc_tb))
             cur.close()
             con.commit()
+        match sql_type:
+            case "INSERT" | "UPDATE" | "DELETE":
+                output = cur.rowcount
+            case "SELECT":
+                output = [x[0] for x in cur.fetchall()]
+            case _:
+                output = None
+        cur.close()
+        con.commit()
         self.logger.core.info(f"Query {query}executed in {(time.time() - start) * 1000} ms")
         return output
 
@@ -86,7 +90,7 @@ class CommanderDatabase:
         query = "INSERT INTO CommandHistory(time, id, event, event_detail) VALUES (?, ?, ?, ?)"
         rows_affected = self.query_wrapper("executemany", "INSERT", query, params=data)
         self.logger.core.debug(f"Events have been added for agents. Rows affected: {rows_affected}")
-        self.logger.core.debug(f"There are {rows_affected} pending responses. Starting check if pending task")
+        self.logger.core.info(f"There are {rows_affected} pending responses. Starting check if pending task")
         self._start_check_pending_task()
 
     def add_event_responses(self):
@@ -102,5 +106,5 @@ class CommanderDatabase:
             if self.bulk_response and self.query_wrapper("execute", "SELECT", query)[0]:
                 self.add_event_responses()
             else:
-                self.logger.core.debug(f"There are no pending requests waiting for agents response. Canceling task")
+                self.logger.core.info(f"There are no pending requests waiting for agents response. Canceling task")
                 self.check_pending_task.cancel()
