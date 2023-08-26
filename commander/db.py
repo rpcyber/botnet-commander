@@ -49,7 +49,7 @@ class CommanderDatabase:
             case "INSERT" | "UPDATE" | "DELETE":
                 output = cur.rowcount
             case "SELECT":
-                output = [x[0] for x in cur.fetchall()]
+                output = cur.fetchall()
             case _:
                 output = None
         cur.close()
@@ -75,15 +75,22 @@ class CommanderDatabase:
 
     def agent_exists(self, uid):
         query = "SELECT EXISTS(SELECT 1 FROM BotAgents WHERE id=?)"
-        result = self.query_wrapper("execute", "SELECT", query, params=[uid])
+        output = self.query_wrapper("execute", "SELECT", query, params=[uid])
+        result = [x[0] for x in output]
         return result[0]
 
     def get_last_row_id(self):
         query = "SELECT count FROM CommandHistory ORDER BY count DESC LIMIT 1"
-        result = self.query_wrapper("execute", "SELECT", query)
+        output = self.query_wrapper("execute", "SELECT", query)
+        result = [x[0] for x in output]
         if result:
             return result[0]
         return 0
+
+    def get_existent_agents(self):
+        query = "SELECT * FROM BotAgents"
+        result = self.query_wrapper("execute", "SELECT", query)
+        return result
 
     def add_agent_events(self, uuid_list, event, event_detail):
         data = list(zip([time.time(), ] * len(uuid_list), uuid_list, [event, ] * len(uuid_list), [event_detail, ] * len(uuid_list)))
@@ -103,7 +110,9 @@ class CommanderDatabase:
         while True:
             await asyncio.sleep(self.resp_wait_window)
             query = 'SELECT EXISTS(SELECT 1 FROM CommandHistory WHERE response is null)'
-            if self.bulk_response and self.query_wrapper("execute", "SELECT", query)[0]:
+            output = self.query_wrapper("execute", "SELECT", query)
+            result = [x[0] for x in output]
+            if self.bulk_response and result[0]:
                 self.add_event_responses()
             else:
                 self.logger.core.info(f"There are no pending requests waiting for agents response. Canceling task")
