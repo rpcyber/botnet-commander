@@ -36,7 +36,7 @@ def load_conf():
 class BotCommander:
     def __init__(self, host, port, offline_tout, cmd_tout, resp_wait_window):
         self.db = CommanderDatabase(resp_wait_window, logger)
-        self.uuids = {}
+        self.uuids = self.db.get_existent_agents()
         self.host = host
         self.port = port
         self.cmd_tout = cmd_tout
@@ -199,13 +199,14 @@ class BotCommander:
                     "Please choose from Y and N next time..."
 
     def _get_target_list(self, cmd_filter):
+        active_agents = [uid for uid in self.uuids if self.uuids[uid].get("writer")]
         if cmd_filter:
             target_list = []
-            for key, val in self.uuids.items():
-                if val["os"] == cmd_filter:
-                    target_list.append(key)
+            for agent_id in active_agents:
+                if self.uuids[agent_id].get("os") == cmd_filter:
+                    target_list.append(agent_id)
             return target_list
-        return list(self.uuids.keys())
+        return active_agents
 
     async def __schedule_command(self, command, cmd_filter, *args):
         self.target_list = self._get_target_list(cmd_filter)
@@ -307,9 +308,18 @@ class BotCommander:
                 uuid = json_msg.get("uuid")
                 hostname = json_msg.get("hostname")
                 op_sys = json_msg.get("os")
-                if self.db.agent_exists(uuid):
+                if uuid in self.uuids:
                     logger.core.info(f'Agent {addr} with UUID {uuid} already present in DB.')
-                    self.uuids[uuid] = {"reader": reader, "writer": writer, "hostname": hostname, "os": op_sys, "addr": addr}
+                    self.uuids[uuid]["reader"] = reader
+                    self.uuids[uuid]["writer"] = writer
+                    if hostname != self.uuids[uuid].get("hostname") or addr != self.uuids[uuid].get("addr"):
+                        logger.core.info(f'Agent {uuid} has changed his hostname or address. New values for hostname '
+                                         f'and address: {hostname}:{addr}')
+                        self.uuids[uuid]["addr"] = addr
+                        self.uuids[uuid]["hostname"] = hostname
+                        rows = self.db.update_agent_addr_and_hostname(hostname, addr, uuid)
+                        logger.core.debug(f'Updated database hostname and address entries for agent {uuid}. Rows '
+                                          f'affected after transaction: {rows}')
                     return uuid
                 else:
                     self.uuids[uuid] = {"reader": reader, "writer": writer, "hostname": hostname, "os": op_sys, "addr": addr}
@@ -393,11 +403,12 @@ class BotCommander:
 
     def __close_agent_connections(self):
         for uid in self.uuids:
-            try:
-                logger.core.debug(f"Closing socket for agent with UUID: {uid} and setting agent offline.")
-                self.uuids[uid]["writer"].close()
-            except Exception as err:
-                logger.core.error(f"Unexpected exception when closing socket for agent {uid}: {err}")
+            if self.uuids[uid].get("writer"):
+                try:
+                    logger.core.debug(f"Closing socket for agent with UUID: {uid} and setting agent offline.")
+                    self.uuids[uid]["writer"].close()
+                except Exception as err:
+                    logger.core.error(f"Unexpected exception when closing socket for agent {uid}: {err}")
 
     async def shutdown(self, s, loop):
         logger.core.info(f"Received exit signal {s.name}...")

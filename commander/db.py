@@ -73,11 +73,10 @@ class CommanderDatabase:
         query = "INSERT INTO BotAgents VALUES(?, ?, ?, ?)"
         return self.query_wrapper("execute", "INSERT", query, params=bot_agent)
 
-    def agent_exists(self, uid):
-        query = "SELECT EXISTS(SELECT 1 FROM BotAgents WHERE id=?)"
-        output = self.query_wrapper("execute", "SELECT", query, params=[uid])
-        result = [x[0] for x in output]
-        return result[0]
+    def update_agent_addr_and_hostname(self, hostname, address, uid):
+        address_socket = f'{address[0]}:{address[1]}'
+        query = "UPDATE BotAgents SET (hostname, address) = (?, ?) WHERE id = ?"
+        return self.query_wrapper("execute", "UPDATE", query, params=[hostname, address_socket, uid])
 
     def get_last_row_id(self):
         query = "SELECT count FROM CommandHistory ORDER BY count DESC LIMIT 1"
@@ -89,8 +88,13 @@ class CommanderDatabase:
 
     def get_existent_agents(self):
         query = "SELECT * FROM BotAgents"
-        result = self.query_wrapper("execute", "SELECT", query)
-        return result
+        output = self.query_wrapper("execute", "SELECT", query)
+        d = {}
+        for bot_agent in output:
+            uuid, hostname, address, op_sys = bot_agent
+            d[uuid] = {"hostname": hostname, "os": op_sys, "addr": address}
+        self.logger.core.debug("Finished initializing agents json using existing data from DB")
+        return d
 
     def add_agent_events(self, uuid_list, event, event_detail):
         data = list(zip([time.time(), ] * len(uuid_list), uuid_list, [event, ] * len(uuid_list), [event_detail, ] * len(uuid_list)))
