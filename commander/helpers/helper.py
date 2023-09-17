@@ -1,8 +1,33 @@
 import os
 import json
 import logging
+import configparser
+from pathlib import Path
+
 
 logger = logging.getLogger(__name__)
+
+
+def load_conf():
+    config_parser = configparser.ConfigParser()
+    cwd_path = Path(__file__)
+    root_dir = cwd_path.parent.absolute()
+    try:
+        config_path = os.path.join(root_dir, "cfg/commander.ini")
+        config_parser.read(config_path)
+        host = config_parser.get("CORE", "HOST")
+        port = int(config_parser.get("CORE", "PORT"))
+        log_level = int(config_parser.get("CORE", "LOG_LEVEL"))
+        log_dir = config_parser.get("CORE", "LOG_DIR")
+        log_name = config_parser.get("CORE", "LOG_NAME")
+        offline_tout = int(config_parser.get("CORE", "OFFLINE_TOUT"))
+        cmd_tout = int(config_parser.get("CORE", "CMD_TOUT"))
+        resp_wait_window = int(config_parser.get("CORE", "RESP_WAIT_WINDOW"))
+    except Exception as err:
+        print("Error initializing CORE, Commander not started because config file could not be loaded. Unexpected "
+              "exception occurred: {}".format(err))
+        exit(5)
+    return host, port, log_level, log_dir, log_name, offline_tout, cmd_tout, resp_wait_window
 
 
 def print_help():
