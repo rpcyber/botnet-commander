@@ -1,9 +1,9 @@
 import sys
 import signal
 import asyncio
-from commander.db import CommanderDatabase
 from commander.api.api import CommanderApi
 from commander.helpers.logger import Logger
+from commander.db.db import CommanderDatabase
 from socket import socket, AF_INET, SOCK_STREAM
 from commander.helpers.helper import json_serialize, json_deserialize, load_conf
 
