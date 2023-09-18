@@ -8,6 +8,11 @@ from socket import socket, AF_INET, SOCK_STREAM
 from commander.helpers.helper import json_serialize, json_deserialize, load_conf
 
 
+(HOST, PORT, LOG_LEVEL, LOG_DIR, LOG_NAME, OFFLINE_TOUT, CMD_TOUT, RESP_WAIT_WINDOW, API_HOST, API_PORT, API_PREFIX,
+ API_LOG_LEVEL) = load_conf()
+logger = Logger(LOG_LEVEL, LOG_DIR, LOG_NAME)
+
+
 class BotCommander:
     def __init__(self, host, port, offline_tout, cmd_tout, resp_wait_window, api_host, api_port, api_prefix,
                  api_server_log_level):
@@ -18,8 +23,7 @@ class BotCommander:
         self.cmd_tout = cmd_tout
         self.offline_tout = offline_tout
         self.sock = socket(AF_INET, SOCK_STREAM)
-        self.api = CommanderApi(api_host, api_port, api_prefix, api_server_log_level, self.uuids, self.db, logger)
-        self.main()
+        self.api = CommanderApi(api_host, api_port, api_prefix, api_server_log_level, logger)
 
     def _get_target_list(self, cmd_filter):
         active_agents = [uid for uid in self.uuids if self.uuids[uid].get("writer")]
@@ -246,7 +250,7 @@ class BotCommander:
         await asyncio.gather(*tasks, return_exceptions=True)
         loop.stop()
 
-    def main(self):
+    def run(self):
         loop = asyncio.new_event_loop()
         signals = (signal.SIGHUP, signal.SIGTERM, signal.SIGINT)
         for s in signals:
@@ -263,8 +267,4 @@ class BotCommander:
             sys.exit()
 
 
-if __name__ == "__main__":
-    (HOST, PORT, LOG_LEVEL, LOG_DIR, LOG_NAME, OFFLINE_TOUT, CMD_TOUT, RESP_WAIT_WINDOW, API_HOST, API_PORT, API_PREFIX,
-     API_LOG_LEVEL) = load_conf()
-    logger = Logger(LOG_LEVEL, LOG_DIR, LOG_NAME)
-    srv = BotCommander(HOST, PORT, OFFLINE_TOUT, CMD_TOUT, RESP_WAIT_WINDOW, API_HOST, API_PORT, API_PREFIX, API_LOG_LEVEL)
+srv = BotCommander(HOST, PORT, OFFLINE_TOUT, CMD_TOUT, RESP_WAIT_WINDOW, API_HOST, API_PORT, API_PREFIX, API_LOG_LEVEL)

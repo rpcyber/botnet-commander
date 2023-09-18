@@ -13,7 +13,7 @@ def load_conf():
     cwd_path = Path(__file__)
     root_dir = cwd_path.parent.absolute()
     try:
-        config_path = os.path.join(root_dir, "cfg/commander.ini")
+        config_path = os.path.join(root_dir, "../cfg/commander.ini")
         config_parser.read(config_path)
         host = config_parser.get("CORE", "HOST")
         port = int(config_parser.get("CORE", "PORT"))
