@@ -2,25 +2,25 @@ import uvicorn
 import asyncio
 from fastapi import FastAPI
 
+from starlette.status import HTTP_200_OK
+
 
 class CommanderApi:
     app = FastAPI()
-    prefix = "/api/v1"
 
-    def __init__(self, agents, db, logger):
+    def __init__(self, host, port, prefix, log_level, agents, db, logger):
         self.agents = agents
         self.db = db
-        self.addr = "0.0.0.0"
-        self.port = 8080
-        self.log_level = "info"
+        self.addr = host
+        self.port = port
+        self.log_level = log_level
         self.logger = logger
+        self.app.include_router(router, prefix=prefix)
 
     @staticmethod
-    @app.get(f'{prefix}/agents/count', status_code=200)
+    @app.get("/agents/count", status_code=HTTP_200_OK)
     async def agents_count():
-        # self.logger.core.info("Endpoint accessed: /agents/count")
-        # return len(self.agents)
-        return "Yes"
+        return len(CommanderApi.agents)
 
     async def start_api(self):
         asyncio.get_running_loop().run_in_executor(None, func=self.run_api_server)
