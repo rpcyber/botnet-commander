@@ -8,11 +8,10 @@ from commander.api.routes import router as api_router
 class CommanderApi:
     app = FastAPI()
 
-    def __init__(self, host, port, prefix, log_level, logger):
+    def __init__(self, host, port, prefix, log_level):
         self.addr = host
         self.port = port
         self.log_level = log_level
-        self.logger = logger
         self.app.include_router(api_router, prefix=prefix)
 
     async def start_api(self):
