@@ -1,16 +1,13 @@
-import sys
-import signal
 import asyncio
-from commander.api.api import CommanderApi
+from socket import socket, AF_INET, SOCK_STREAM
+
 from commander.helpers.logger import Logger
 from commander.db.db import CommanderDatabase
-from socket import socket, AF_INET, SOCK_STREAM
 from commander.helpers.helper import json_serialize, json_deserialize
 
 
 class BotCommander:
-    def __init__(self, host, port, log_level, log_dir, log_name, offline_tout, cmd_tout, resp_wait_window, api_host, 
-                 api_port, api_prefix, api_log_level):
+    def __init__(self, host, port, log_level, log_dir, log_name, offline_tout, cmd_tout, resp_wait_window):
         self.logger = Logger(log_level, log_dir, log_name)
         self.db = CommanderDatabase(resp_wait_window, self.logger)
         self.uuids = self.db.get_existent_agents()
@@ -19,7 +16,6 @@ class BotCommander:
         self.cmd_tout = cmd_tout
         self.offline_tout = offline_tout
         self.sock = socket(AF_INET, SOCK_STREAM)
-        self.api = CommanderApi(api_host, api_port, api_prefix, api_log_level)
 
     def __get_target_list(self, cmd_filter):
         active_agents = [uid for uid in self.uuids if self.uuids[uid].get("writer")]
@@ -216,15 +212,6 @@ class BotCommander:
             return
         asyncio.create_task(self.__communicate_with_agent(reader, writer, addr, agent_uuid))
 
-    async def __server_run(self):
-        bot_server = await asyncio.start_server(self.__handle_agent, self.host, self.port)
-
-        addrs = ", ".join(str(self.sock.getsockname()) for self.sock in bot_server.sockets)
-        self.logger.core.info(f"Server started listener on {addrs}")
-
-        async with bot_server:
-            await bot_server.serve_forever()
-
     def __close_agent_connections(self):
         for uid in self.uuids:
             if self.uuids[uid].get("writer"):
@@ -234,7 +221,7 @@ class BotCommander:
                 except Exception as err:
                     self.logger.core.error(f"Unexpected exception when closing socket for agent {uid}: {err}")
 
-    async def __shutdown(self, s, loop):
+    async def shutdown(self, s, loop):
         self.logger.core.info(f"Received exit signal {s.name}...")
         self.logger.core.info("Closing all connections to agents")
         self.__close_agent_connections()
@@ -247,21 +234,14 @@ class BotCommander:
         await asyncio.gather(*tasks, return_exceptions=True)
         loop.stop()
 
-    def get_number_of_connected_agents(self):
-        return len(self.uuids)
+    async def start_listener(self):
+        bot_server = await asyncio.start_server(self.__handle_agent, self.host, self.port)
 
-    def run(self):
-        loop = asyncio.new_event_loop()
-        signals = (signal.SIGHUP, signal.SIGTERM, signal.SIGINT)
-        for s in signals:
-            loop.add_signal_handler(
-                s, lambda s=s: asyncio.create_task(self.__shutdown(s, loop)))
-        try:
-            self.db.check_pending_task = loop.create_task(self.db.check_if_pending())
-            loop.create_task(self.__server_run())
-            loop.create_task(self.api.start_api())
-            loop.run_forever()
-        finally:
-            loop.close()
-            self.logger.core.info("Successfully shutdown Commander.")
-            sys.exit()
+        addrs = ", ".join(str(self.sock.getsockname()) for self.sock in bot_server.sockets)
+        self.logger.core.info(f"Server started listener on {addrs}")
+
+        async with bot_server:
+            await bot_server.serve_forever()
+
+    def count_connected_agents(self):
+        return 5
