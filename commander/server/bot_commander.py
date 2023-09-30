@@ -244,4 +244,4 @@ class BotCommander:
             await bot_server.serve_forever()
 
     def count_connected_agents(self):
-        return 5
+        return len(self.uuids)
