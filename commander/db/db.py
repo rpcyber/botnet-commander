@@ -3,12 +3,13 @@ import sys
 import time
 import sqlite3
 import asyncio
+import logging
 import traceback
 
 
 class CommanderDatabase:
-    def __init__(self, resp_wait_window, logger):
-        self.logger = logger
+    def __init__(self, resp_wait_window):
+        self.logger = logging.getLogger(__name__+"."+self.__class__.__name__)
         self.base_path = "/opt/commander"
         self.db_path = f"{self.base_path}/db"
         self.db_name = "commander.db"
@@ -38,11 +39,11 @@ class CommanderDatabase:
                 case "executescript":
                     cur.executescript(query)
         except sqlite3.Error as er:
-            self.logger.core.error(f"SQLite error: {er.args}")
-            self.logger.core.error("SQLite exception class is: ", er.__class__)
-            self.logger.core.error('SQLite traceback: ')
+            self.logger.error(f"SQLite error: {er.args}")
+            self.logger.error("SQLite exception class is: ", er.__class__)
+            self.logger.error('SQLite traceback: ')
             exc_type, exc_value, exc_tb = sys.exc_info()
-            self.logger.core.error(traceback.format_exception(exc_type, exc_value, exc_tb))
+            self.logger.error(traceback.format_exception(exc_type, exc_value, exc_tb))
             cur.close()
             con.commit()
         match sql_type:
@@ -54,10 +55,10 @@ class CommanderDatabase:
                 output = None
         cur.close()
         con.commit()
-        self.logger.core.info(f"Query {query}executed in {(time.time() - start) * 1000} ms")
         return output
 
     def db_init(self):
+        self.logger.info("Initializing Commander database")
         query = ('''
             CREATE TABLE IF NOT EXISTS BotAgents
             (id TEXT PRIMARY KEY, hostname TEXT, address TEXT, os TEXT);
@@ -93,21 +94,21 @@ class CommanderDatabase:
         for bot_agent in output:
             uuid, hostname, address, op_sys = bot_agent
             d[uuid] = {"hostname": hostname, "os": op_sys, "addr": address}
-        self.logger.core.debug("Finished initializing agents json using existing data from DB")
+        self.logger.debug("Finished initializing agents json using existing data from DB")
         return d
 
     def add_agent_events(self, uuid_list, event, event_detail):
         data = list(zip([time.time(), ] * len(uuid_list), uuid_list, [event, ] * len(uuid_list), [event_detail, ] * len(uuid_list)))
         query = "INSERT INTO CommandHistory(time, id, event, event_detail) VALUES (?, ?, ?, ?)"
         rows_affected = self.query_wrapper("executemany", "INSERT", query, params=data)
-        self.logger.core.debug(f"Events have been added for agents. Rows affected: {rows_affected}")
-        self.logger.core.info(f"There are {rows_affected} pending responses. Starting check if pending task")
+        self.logger.debug(f"Events have been added for agents. Rows affected: {rows_affected}")
+        self.logger.info(f"There are {rows_affected} pending responses. Starting check if pending task")
         self._start_check_pending_task()
 
     def add_event_responses(self):
         query = "UPDATE CommandHistory SET (response, exit_code) = (?, ?) WHERE count = ?"
         rows_affected = self.query_wrapper("executemany", "UPDATE", query, params=self.bulk_response)
-        self.logger.core.debug(f"Event responses have been added to DB, number of rows updated: {rows_affected}")
+        self.logger.debug(f"Event responses have been added to DB, number of rows updated: {rows_affected}")
         self.bulk_response = []
 
     async def check_if_pending(self):
@@ -119,5 +120,5 @@ class CommanderDatabase:
             if self.bulk_response and result[0]:
                 self.add_event_responses()
             else:
-                self.logger.core.info(f"There are no pending requests waiting for agents response. Canceling task")
+                self.logger.info(f"There are no pending requests waiting for agents response. Canceling task")
                 self.check_pending_task.cancel()
