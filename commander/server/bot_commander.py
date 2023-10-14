@@ -7,9 +7,9 @@ from commander.helpers.helper import json_serialize, json_deserialize
 
 
 class BotCommander:
-    def __init__(self, host, port, offline_tout, cmd_tout, resp_wait_window):
+    def __init__(self, host, port, base_path, offline_tout, cmd_tout, resp_wait_window):
         self.logger = logging.getLogger(__name__+"."+self.__class__.__name__)
-        self.db = CommanderDatabase(resp_wait_window)
+        self.db = CommanderDatabase(base_path, resp_wait_window)
         self.uuids = self.db.get_existent_agents()
         self.host = host
         self.port = port

@@ -13,11 +13,11 @@ app = FastAPI()
 
 class CommanderApi:
 
-    def __init__(self, host, port, prefix, uvicorn_log_level, pki_path, api_router):
+    def __init__(self, host, port, prefix, uvicorn_log_level, base_path, api_router):
         self.addr = host
         self.port = port
         self.prefix = prefix
-        self.pki_path = pki_path
+        self.pki_path = f"{base_path}/pki"
         self.api_router = api_router
         self.api_key = "api-key.pem"
         self.api_cert = "api-cert.pem"

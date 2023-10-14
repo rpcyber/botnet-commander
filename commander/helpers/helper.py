@@ -18,11 +18,10 @@ def load_conf():
         host = config_parser.get("CORE", "HOST")
         port = int(config_parser.get("CORE", "PORT"))
         log_level = int(config_parser.get("CORE", "LOG_LEVEL"))
-        log_dir = config_parser.get("CORE", "LOG_DIR")
+        base_path = config_parser.get("CORE", "BASE_PATH")
         log_name = config_parser.get("CORE", "LOG_NAME")
         offline_tout = int(config_parser.get("CORE", "OFFLINE_TOUT"))
         cmd_tout = int(config_parser.get("CORE", "CMD_TOUT"))
-        pki_path = config_parser.get("CORE", "PKI_PATH")
         resp_wait_window = int(config_parser.get("DB", "RESP_WAIT_WINDOW"))
         api_host = config_parser.get("API", "HOST")
         api_port = int(config_parser.get("API", "PORT"))
@@ -33,7 +32,7 @@ def load_conf():
         print("Error initializing CORE, Commander not started because config file could not be loaded. Unexpected "
               "exception occurred: {}".format(err))
         exit(5)
-    return (host, port, log_level, log_dir, log_name, offline_tout, cmd_tout, pki_path, resp_wait_window, api_host,
+    return (host, port, log_level, base_path, log_name, offline_tout, cmd_tout, resp_wait_window, api_host,
             api_port, api_prefix, api_log_level)
 
 

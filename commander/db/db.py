@@ -8,9 +8,9 @@ import traceback
 
 
 class CommanderDatabase:
-    def __init__(self, resp_wait_window):
+    def __init__(self, base_path, resp_wait_window):
         self.logger = logging.getLogger(__name__+"."+self.__class__.__name__)
-        self.base_path = "/opt/commander"
+        self.base_path = base_path
         self.db_path = f"{self.base_path}/db"
         self.db_name = "commander.db"
         self.db_fp = os.path.join(self.db_path, self.db_name)
@@ -29,7 +29,6 @@ class CommanderDatabase:
         cur.execute("pragma synchronous = normal")
         cur.execute("pragma temp_store = memory")
         cur.execute("pragma mmap_size = 30000000000")
-        start = time.time()
         try:
             match sql_method:
                 case "executemany":
