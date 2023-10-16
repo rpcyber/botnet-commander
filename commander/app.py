@@ -14,11 +14,11 @@ router = APIRouter()
 
 
 @router.get("/agents/count", status_code=200)
-def count_agents(filter: str = None) -> int:
+def count_agents(filter: str = None):
     response = {
-        None: bot_server.count_connected_agents,
-        "offline": bot_server.count_connected_agents,
-        "online": bot_server.count_connected_agents
+        None: bot_server.count_all_agents,
+        "offline": bot_server.count_offline_agents,
+        "online": bot_server.count_online_agents
     }
     if response.get(filter):
         return response.get(filter)()

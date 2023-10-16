@@ -17,6 +17,7 @@ class CommanderDatabase:
         self.resp_wait_window = resp_wait_window
         self.bulk_response = []
         self.db_init()
+        self.db_agents = self.get_existent_agents()
 
     def _start_check_pending_task(self):
         loop = asyncio.get_running_loop()
@@ -67,16 +68,11 @@ class CommanderDatabase:
             ''')
         self.query_wrapper("executescript", "CREATE", query)
 
-    def add_agent(self, uuid, hostname, address, os_type):
-        address_socket = f'{address[0]}:{address[1]}'
-        bot_agent = [uuid, hostname, address_socket, os_type]
-        query = "INSERT INTO BotAgents VALUES(?, ?, ?, ?)"
-        return self.query_wrapper("execute", "INSERT", query, params=bot_agent)
-
-    def update_agent_addr_and_hostname(self, hostname, address, uid):
-        address_socket = f'{address[0]}:{address[1]}'
-        query = "UPDATE BotAgents SET (hostname, address) = (?, ?) WHERE id = ?"
-        return self.query_wrapper("execute", "UPDATE", query, params=[hostname, address_socket, uid])
+    def count_agents(self):
+        query = "SELECT COUNT(1) From BotAgents"
+        output = self.query_wrapper("execute", "SELECT", query)
+        result = [x[0] for x in output]
+        return result[0]
 
     def get_last_row_id(self):
         query = "SELECT count FROM CommandHistory ORDER BY count DESC LIMIT 1"
@@ -95,6 +91,17 @@ class CommanderDatabase:
             d[uuid] = {"hostname": hostname, "os": op_sys, "addr": address}
         self.logger.debug("Finished initializing agents json using existing data from DB")
         return d
+
+    def update_agent_addr_and_hostname(self, hostname, address, uid):
+        address_socket = f'{address[0]}:{address[1]}'
+        query = "UPDATE BotAgents SET (hostname, address) = (?, ?) WHERE id = ?"
+        return self.query_wrapper("execute", "UPDATE", query, params=[hostname, address_socket, uid])
+
+    def add_agent(self, uuid, hostname, address, os_type):
+        address_socket = f'{address[0]}:{address[1]}'
+        bot_agent = [uuid, hostname, address_socket, os_type]
+        query = "INSERT INTO BotAgents VALUES(?, ?, ?, ?)"
+        return self.query_wrapper("execute", "INSERT", query, params=bot_agent)
 
     def add_agent_events(self, uuid_list, event, event_detail):
         data = list(zip([time.time(), ] * len(uuid_list), uuid_list, [event, ] * len(uuid_list), [event_detail, ] * len(uuid_list)))

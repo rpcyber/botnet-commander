@@ -10,7 +10,7 @@ class BotCommander:
     def __init__(self, host, port, base_path, offline_tout, cmd_tout, resp_wait_window):
         self.logger = logging.getLogger(__name__+"."+self.__class__.__name__)
         self.db = CommanderDatabase(base_path, resp_wait_window)
-        self.uuids = self.db.get_existent_agents()
+        self.uuids = {}
         self.host = host
         self.port = port
         self.cmd_tout = cmd_tout
@@ -127,15 +127,15 @@ class BotCommander:
                 uuid = json_msg.get("uuid")
                 hostname = json_msg.get("hostname")
                 op_sys = json_msg.get("os")
-                if uuid in self.uuids:
+                if uuid in self.db.db_agents:
                     self.logger.info(f'Agent {addr} with UUID {uuid} already present in DB.')
-                    self.uuids[uuid]["reader"] = reader
-                    self.uuids[uuid]["writer"] = writer
-                    if hostname != self.uuids[uuid].get("hostname") or addr != self.uuids[uuid].get("addr"):
-                        self.logger.info(f"Agent {uuid} has changed his hostname or address. New values for "
-                                         f"hostname and address: {hostname}:{addr}")
-                        self.uuids[uuid]["addr"] = addr
-                        self.uuids[uuid]["hostname"] = hostname
+                    self.uuids[uuid] = {"reader": reader, "writer": writer, "hostname": hostname, "os": op_sys,
+                                        "addr": addr}
+                    if hostname != self.db.db_agents[uuid].get("hostname") or addr[0] != self.db.db_agents[uuid].get("addr")[0]:
+                        self.logger.info(f"Agent {uuid} has changed his hostname or IP. New values for "
+                                         f"hostname and IP: {hostname}:{addr[0]}")
+                        self.db.db_agents[uuid]["addr"] = addr
+                        self.db.db_agents[uuid]["hostname"] = hostname
                         rows = self.db.update_agent_addr_and_hostname(hostname, addr, uuid)
                         self.logger.debug(f"Updated database hostname and address entries for agent {uuid}. Rows "
                                           f"affected after transaction: {rows}")
@@ -143,6 +143,7 @@ class BotCommander:
                 else:
                     self.uuids[uuid] = {"reader": reader, "writer": writer, "hostname": hostname, "os": op_sys, "addr": addr}
                     rows = self.db.add_agent(uuid, hostname, addr, op_sys)
+                    self.db.db_agents[uuid] = {"reader": reader, "writer": writer, "hostname": hostname, "os": op_sys, "addr": addr}
                     self.logger.info(f"Successfully added agent {hostname}-{uuid} to DB")
                     self.logger.debug(f"Affected rows by adding agent {hostname}-{uuid} : {rows} row")
                     return uuid
@@ -243,5 +244,11 @@ class BotCommander:
         async with bot_server:
             await bot_server.serve_forever()
 
-    def count_connected_agents(self):
+    def count_all_agents(self):
+        return self.db.count_agents()
+
+    def count_online_agents(self):
         return len(self.uuids)
+
+    def count_offline_agents(self):
+        return self.db.count_agents() - len(self.uuids)
