@@ -244,11 +244,8 @@ class BotCommander:
         async with bot_server:
             await bot_server.serve_forever()
 
-    def count_all_agents(self):
-        return self.db.count_agents()
-
-    def count_online_agents(self):
-        return len(self.uuids)
-
-    def count_offline_agents(self):
-        return self.db.count_agents() - len(self.uuids)
+    def count_agents(self, status, os):
+        filter = ""
+        if os:
+            filter = f"WHERE os='{os}'"
+        return self.db.count_agents(filter=filter)

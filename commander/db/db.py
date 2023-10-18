@@ -30,6 +30,7 @@ class CommanderDatabase:
         cur.execute("pragma synchronous = normal")
         cur.execute("pragma temp_store = memory")
         cur.execute("pragma mmap_size = 30000000000")
+        self.logger.info(f"Executing query: {query}")
         try:
             match sql_method:
                 case "executemany":
@@ -68,8 +69,8 @@ class CommanderDatabase:
             ''')
         self.query_wrapper("executescript", "CREATE", query)
 
-    def count_agents(self):
-        query = "SELECT COUNT(1) From BotAgents"
+    def count_agents(self, filter):
+        query = f"SELECT COUNT(*) From BotAgents {filter}"
         output = self.query_wrapper("execute", "SELECT", query)
         result = [x[0] for x in output]
         return result[0]
