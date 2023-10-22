@@ -263,5 +263,5 @@ class BotCommander:
                 }
         return count_by_os[bool(os)]
 
-    def list_agents(self, status, os):
+    def list_agents(self, entity, status, os):
         pass

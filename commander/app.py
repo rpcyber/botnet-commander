@@ -1,5 +1,5 @@
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import Depends, APIRouter, HTTPException, Query
 
 from commander.helpers.api_messages import INVALID_STATUS, INVALID_OS
 from commander.pki.pki_init import pki_init
@@ -14,13 +14,23 @@ bot_server = BotCommander(HOST, PORT, BASE_PATH, OFFLINE_TOUT, CMD_TOUT, RESP_WA
 router = APIRouter()
 
 
-@router.get("/agents/count", status_code=200)
-def count_agents(status: Optional[str] = "", os: Optional[str] = ""):
+def validate_filter(status, os):
     if status and status not in ("online", "offline"):
         raise HTTPException(status_code=400, detail=INVALID_STATUS)
     if os and os not in ("Windows", "Linux"):
         raise HTTPException(status_code=400, detail=INVALID_OS)
+
+
+@router.get("/agents/count", status_code=200)
+def count_agents(status: Optional[str] = "", os: Optional[str] = ""):
+    validate_filter(status, os)
     return bot_server.count_agents(status, os)
+
+
+@router.get("/agents/{entity}/list", status_code=200)
+def list_agents(entity: str, status: Optional[str] = "", os: Optional[str] = ""):
+    validate_filter(status, os)
+    return bot_server.list_agents(entity, status, os)
 
 
 api = CommanderApi(API_HOST, API_PORT, API_PREFIX, API_LOG_LEVEL, BASE_PATH, router)
