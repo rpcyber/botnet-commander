@@ -245,7 +245,23 @@ class BotCommander:
             await bot_server.serve_forever()
 
     def count_agents(self, status, os):
-        filter = ""
-        if os:
-            filter = f"WHERE os='{os}'"
-        return self.db.count_agents(filter=filter)
+        match status:
+            case "online":
+                count_by_os = {
+                    False: len(self.uuids),
+                    True: sum(uuid for uuid in self.uuids if uuid["os"] == os)
+                }
+            case "offline":
+                count_by_os = {
+                    False: self.db.count_agents(filter="") - len(self.uuids),
+                    True: self.db.count_agents(filter=f"WHERE os='{os}'") - sum(uuid for uuid in self.uuids if uuid["os"] == os)
+                }
+            case _:
+                count_by_os = {
+                    False: self.db.count_agents(filter=""),
+                    True: self.db.count_agents(filter=f"WHERE os='{os}'")
+                }
+        return count_by_os[bool(os)]
+
+    def list_agents(self, status, os):
+        pass

@@ -69,7 +69,7 @@ class CommanderDatabase:
             ''')
         self.query_wrapper("executescript", "CREATE", query)
 
-    def count_agents(self, filter):
+    def count_agents(self, filter=""):
         query = f"SELECT COUNT(*) From BotAgents {filter}"
         output = self.query_wrapper("execute", "SELECT", query)
         result = [x[0] for x in output]
