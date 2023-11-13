@@ -75,6 +75,12 @@ class CommanderDatabase:
         result = [x[0] for x in output]
         return result[0]
 
+    def list_agents(self, filter=""):
+        query = f"SELECT id, hostname, address, os FROM BotAgents {filter}"
+        output = self.query_wrapper("execute", "SELECT", query)
+        result = [x[0] for x in output]
+        return result
+
     def get_last_row_id(self):
         query = "SELECT count FROM CommandHistory ORDER BY count DESC LIMIT 1"
         output = self.query_wrapper("execute", "SELECT", query)

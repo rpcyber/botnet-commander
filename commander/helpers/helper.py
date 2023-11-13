@@ -2,6 +2,7 @@ import os
 import json
 import logging
 import configparser
+from uuid import UUID
 from pathlib import Path
 
 
@@ -113,3 +114,11 @@ def print_shell_note():
     print("NOTE: There is no validation performed by commander in regards to your command, so insert a valid "
           "one, if you insert an invalid one however you will just get the output and error for that command"
           " sent back by bot-agent, this note is just FYI.")
+
+
+def is_uuid(str_to_test, version=4):
+    try:
+        uuid_obj = UUID(str_to_test, version=version)
+    except ValueError:
+        return False
+    return str(uuid_obj) == str_to_test

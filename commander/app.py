@@ -1,7 +1,8 @@
 from typing import Optional
 from fastapi import Depends, APIRouter, HTTPException, Query
 
-from commander.helpers.api_messages import INVALID_STATUS, INVALID_OS
+from commander.helpers.api_messages import INVALID_STATUS, INVALID_OS, INVALID_ENTITY
+from commander.helpers.helper import is_uuid
 from commander.pki.pki_init import pki_init
 from commander.api.api import CommanderApi
 from commander.server.bot_commander import BotCommander
@@ -21,6 +22,13 @@ def validate_filter(status, os):
         raise HTTPException(status_code=400, detail=INVALID_OS)
 
 
+def validate_entity(entity):
+    if entity == "*" or is_uuid(entity):
+        pass
+    else:
+        raise HTTPException(status_code=400, detail=INVALID_ENTITY)
+
+
 @router.get("/agents/count", status_code=200)
 def count_agents(status: Optional[str] = "", os: Optional[str] = ""):
     validate_filter(status, os)
@@ -30,6 +38,7 @@ def count_agents(status: Optional[str] = "", os: Optional[str] = ""):
 @router.get("/agents/{entity}/list", status_code=200)
 def list_agents(entity: str, status: Optional[str] = "", os: Optional[str] = ""):
     validate_filter(status, os)
+    validate_entity(entity)
     return bot_server.list_agents(entity, status, os)
 
 

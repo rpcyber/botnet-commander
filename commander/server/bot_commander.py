@@ -264,4 +264,14 @@ class BotCommander:
         return count_by_os[bool(os)]
 
     def list_agents(self, entity, status, os):
-        pass
+        match status:
+            case "online":
+                if entity == "*":
+                    for uid in self.uuids:
+                        pass
+                elif self.uuids[entity]["os"] == os:
+                    return self.uuids[entity]
+            case "offline":
+                pass
+            case _:
+                pass
