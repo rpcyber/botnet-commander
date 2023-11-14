@@ -75,10 +75,12 @@ class CommanderDatabase:
         result = [x[0] for x in output]
         return result[0]
 
-    def list_agents(self, filter=""):
-        query = f"SELECT id, hostname, address, os FROM BotAgents {filter}"
+    def list_agents(self, filter="", entity=""):
+        query = f"SELECT id, hostname, address, os FROM BotAgents {filter} {entity}"
         output = self.query_wrapper("execute", "SELECT", query)
-        result = [x[0] for x in output]
+        columns = ["id", "hostname", "address", "os"]
+        result = [dict(zip(columns, row))
+                  for row in output]
         return result
 
     def get_last_row_id(self):
