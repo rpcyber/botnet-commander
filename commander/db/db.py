@@ -76,8 +76,8 @@ class CommanderDatabase:
         return result[0]
 
     def list_agents(self, filter="", entity=""):
-        query = f"SELECT id, hostname, address, os FROM BotAgents {filter} {entity}"
-        output = self.query_wrapper("execute", "SELECT", query)
+        query = "SELECT id, hostname, address, os FROM BotAgents ? ?"
+        output = self.query_wrapper("execute", "SELECT", query, params=(filter, entity))
         columns = ["id", "hostname", "address", "os"]
         result = [dict(zip(columns, row))
                   for row in output]

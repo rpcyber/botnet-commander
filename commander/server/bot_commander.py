@@ -288,7 +288,10 @@ class BotCommander:
             if os:
                 filter += f"WHERE os='{os}'"
             if entity != "*":
-                filter += f"AND id='{entity}'"
+                if filter:
+                    filter += f"AND id='{entity}'"
+                else:
+                    filter += f"WHERE id='{entity}'"
                 return self.db.list_agents(filter, entity)
             else:
                 return self.db.list_agents(filter)
