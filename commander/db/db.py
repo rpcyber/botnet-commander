@@ -69,15 +69,32 @@ class CommanderDatabase:
             ''')
         self.query_wrapper("executescript", "CREATE", query)
 
-    def count_agents(self, filter=""):
-        query = f"SELECT COUNT(*) From BotAgents {filter}"
-        output = self.query_wrapper("execute", "SELECT", query)
+    def count_agents(self, op_sys=""):
+        if op_sys:
+            query = "SELECT COUNT(*) From BotAgents WHERE os = ?"
+            output = self.query_wrapper("execute", "SELECT", query, params=(op_sys,))
+        else:
+            query = f"SELECT COUNT(*) From BotAgents {op_sys}"
+            output = self.query_wrapper("execute", "SELECT", query)
         result = [x[0] for x in output]
         return result[0]
 
-    def list_agents(self, filter="", entity=""):
-        query = "SELECT id, hostname, address, os FROM BotAgents ? ?"
-        output = self.query_wrapper("execute", "SELECT", query, params=(filter, entity))
+    def list_agents(self, op_sys="", entity=""):
+        if entity:
+            if op_sys:
+                query = "SELECT id, hostname, address, os FROM BotAgents WHERE id = ? AND os = ?"
+                params = (op_sys, entity)
+            else:
+                query = "SELECT id, hostname, address, os FROM BotAgents WHERE id = ?"
+                params = (entity,)
+        else:
+            if op_sys:
+                query = "SELECT id, hostname, address, os FROM BotAgents WHERE os = ?"
+                params = (op_sys,)
+            else:
+                query = "SELECT id, hostname, address, os FROM BotAgents"
+                params = ()
+        output = self.query_wrapper("execute", "SELECT", query, params=params)
         columns = ["id", "hostname", "address", "os"]
         result = [dict(zip(columns, row))
                   for row in output]

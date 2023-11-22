@@ -245,24 +245,24 @@ class BotCommander:
         async with bot_server:
             await bot_server.serve_forever()
 
-    def count_agents(self, status, os):
+    def count_agents(self, status, op_sys):
         match status:
             case "online":
                 count_by_os = {
                     False: len(self.uuids),
-                    True: sum(uuid for uuid in self.uuids if uuid["os"] == os)
+                    True: sum(uuid for uuid in self.uuids if uuid["os"] == op_sys)
                 }
             case "offline":
                 count_by_os = {
-                    False: self.db.count_agents(filter="") - len(self.uuids),
-                    True: self.db.count_agents(filter=f"WHERE os='{os}'") - sum(uuid for uuid in self.uuids if uuid["os"] == os)
+                    False: self.db.count_agents() - len(self.uuids),
+                    True: self.db.count_agents(op_sys) - sum(uuid for uuid in self.uuids if uuid["os"] == op_sys)
                 }
             case _:
                 count_by_os = {
-                    False: self.db.count_agents(filter=""),
-                    True: self.db.count_agents(filter=f"WHERE os='{os}'")
+                    False: self.db.count_agents(),
+                    True: self.db.count_agents(op_sys)
                 }
-        return count_by_os[bool(os)]
+        return count_by_os[bool(op_sys)]
 
     def list_agents(self, entity, status, os):
         if status == "online":
@@ -284,14 +284,7 @@ class BotCommander:
             else:
                 pass
         else:
-            filter = ""
-            if os:
-                filter += f"WHERE os='{os}'"
             if entity != "*":
-                if filter:
-                    filter += f"AND id='{entity}'"
-                else:
-                    filter += f"WHERE id='{entity}'"
-                return self.db.list_agents(filter, entity)
+                return self.db.list_agents(entity)
             else:
-                return self.db.list_agents(filter)
+                return self.db.list_agents()
