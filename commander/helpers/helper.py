@@ -122,11 +122,3 @@ def is_uuid(str_to_test, version=4):
     except ValueError:
         return False
     return str(uuid_obj) == str_to_test
-
-
-def update_dict(tmp_d, uid, uuids):
-    tmp_d[uid] = {}
-    tmp_d[uid]["os"] = uuids.get(uid).get("os")
-    tmp_d[uid]["hostname"] = uuids.get(uid).get("hostname")
-    tmp_d[uid]["addr"] = uuids.get(uid).get("addr")
-    return tmp_d

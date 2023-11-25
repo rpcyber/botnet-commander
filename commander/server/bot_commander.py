@@ -1,10 +1,9 @@
 import asyncio
 import logging
-from copy import deepcopy
 from socket import socket, AF_INET, SOCK_STREAM
 
 from commander.db.db import CommanderDatabase
-from commander.helpers.helper import json_serialize, json_deserialize, update_dict
+from commander.helpers.helper import json_serialize, json_deserialize
 
 
 class BotCommander:
@@ -266,25 +265,33 @@ class BotCommander:
 
     def list_agents(self, entity, status, os):
         if status == "online":
-            tmp_d = {}
             if entity == "*":
-                for uid in self.uuids:
-                    if not os or uid.get("os") == os:
-                        tmp_d = update_dict(tmp_d, uid, self.uuids)
-                return tmp_d
+                resp_list = []
+                for uid, d in self.uuids.items():
+                    if not os or d.get("os") == os:
+                        tmp = {"id": uid, "hostname": d.get("hostname"), "addr": d.get("addr"), "os": d.get("os")}
+                        resp_list.append(tmp)
+                return resp_list
             else:
                 if not os or self.uuids.get(entity).get("os") == os:
-                    tmp_d = update_dict(tmp_d, entity, self.uuids)
-                    return tmp_d
+                    d = self.uuids.get(entity)
+                    return {"id": entity, "hostname": d.get("hostname"), "addr": d.get("addr"), "os": d.get("os")}
                 else:
-                    return ""
+                    return {}
         elif status == "offline":
             if entity == "*":
-                pass
+                tmp = self.db.list_agents()
+                for d in tmp:
+                    uid = d.get("id")
+                    if uid in self.uuids:
+                        tmp.remove(d)
+                return tmp
+            elif entity in self.uuids:
+                return {}
             else:
-                pass
+                self.db.list_agents(os, entity)
         else:
             if entity != "*":
-                return self.db.list_agents(entity)
+                return self.db.list_agents(os, entity)
             else:
-                return self.db.list_agents()
+                return self.db.list_agents(os)
