@@ -42,4 +42,11 @@ def list_agents(entity: str, status: Optional[str] = "", os: Optional[str] = "")
     return bot_server.list_agents(entity, status, os)
 
 
+@router.get("/agents/{entity}/list", status_code=200)
+def history_agents(entity: str, status: Optional[str] = "", os: Optional[str] = ""):
+    validate_filter(status, os)
+    validate_entity(entity)
+    return bot_server.history_agents(entity, status, os)
+
+
 api = CommanderApi(API_HOST, API_PORT, API_PREFIX, API_LOG_LEVEL, BASE_PATH, router)

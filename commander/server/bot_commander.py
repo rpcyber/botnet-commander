@@ -295,3 +295,20 @@ class BotCommander:
                 return self.db.list_agents(os, entity)
             else:
                 return self.db.list_agents(os)
+
+    def history_agents(self, entity, status, os):
+        if status == "online":
+            if entity == "*":
+                pass
+            else:
+                pass
+        elif status == "offline":
+            if entity == "*":
+                pass
+            else:
+                pass
+        else:
+            if entity == "*":
+                pass
+            else:
+                pass
