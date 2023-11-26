@@ -100,6 +100,25 @@ class CommanderDatabase:
                   for row in output]
         return result
 
+    def agents_history(self, uids, reverse, op_sys=""):
+        if isinstance(reverse, bool):
+            id_list = list(zip(uids))
+            sql_script = """
+            DROP TABLE IF EXISTS temp;
+            CREATE TABLE temp(id TEXT)"""
+            self.query_wrapper("executescript", "CREATE", sql_script)
+            query = "INSERT INTO temp(id) VALUES(?)"
+            self.query_wrapper("executemany", "INSERT", query, params=id_list)
+            query = ("SELECT c.id ,c.event , c.event_detail, c.response, c.exit_code FROM CommandHistory AS c "
+                     "INNER JOIN temp ON temp.id = c.id")
+            output = self.query_wrapper("execute", "SELECT", query)
+            columns = ["id", "event", "event_detail", "response", "exit_code"]
+            result = [dict(zip(columns, row))
+                      for row in output]
+        else:
+            result = 0
+        return result
+
     def get_last_row_id(self):
         query = "SELECT count FROM CommandHistory ORDER BY count DESC LIMIT 1"
         output = self.query_wrapper("execute", "SELECT", query)

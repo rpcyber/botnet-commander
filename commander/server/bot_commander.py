@@ -263,17 +263,17 @@ class BotCommander:
                 }
         return count_by_os[bool(op_sys)]
 
-    def list_agents(self, entity, status, os):
+    def list_agents(self, entity, status, op_sys):
         if status == "online":
             if entity == "*":
                 resp_list = []
                 for uid, d in self.uuids.items():
-                    if not os or d.get("os") == os:
+                    if not op_sys or d.get("os") == op_sys:
                         tmp = {"id": uid, "hostname": d.get("hostname"), "addr": d.get("addr"), "os": d.get("os")}
                         resp_list.append(tmp)
                 return resp_list
             else:
-                if not os or self.uuids.get(entity).get("os") == os:
+                if not op_sys or self.uuids.get(entity).get("os") == op_sys:
                     d = self.uuids.get(entity)
                     return {"id": entity, "hostname": d.get("hostname"), "addr": d.get("addr"), "os": d.get("os")}
                 else:
@@ -289,26 +289,19 @@ class BotCommander:
             elif entity in self.uuids:
                 return {}
             else:
-                self.db.list_agents(os, entity)
+                self.db.list_agents(op_sys, entity)
         else:
             if entity != "*":
-                return self.db.list_agents(os, entity)
+                return self.db.list_agents(op_sys, entity)
             else:
-                return self.db.list_agents(os)
+                return self.db.list_agents(op_sys)
 
-    def history_agents(self, entity, status, os):
-        if status == "online":
+    def history_agents(self, entity, status, op_sys):
+        if status:
+            d = {"online": False, "offline": True, "": ""}
+            reverse = d.get(status)
             if entity == "*":
-                pass
-            else:
-                pass
-        elif status == "offline":
-            if entity == "*":
-                pass
-            else:
-                pass
-        else:
-            if entity == "*":
-                pass
+                uid_list = list(self.uuids.keys())
+                return self.db.agents_history(uid_list, reverse, op_sys)
             else:
                 pass
