@@ -109,15 +109,49 @@ class CommanderDatabase:
             self.query_wrapper("executescript", "CREATE", sql_script)
             query = "INSERT INTO temp(id) VALUES(?)"
             self.query_wrapper("executemany", "INSERT", query, params=id_list)
-            query = ("SELECT c.id ,c.event , c.event_detail, c.response, c.exit_code FROM CommandHistory AS c "
-                     "INNER JOIN temp ON temp.id = c.id")
-            output = self.query_wrapper("execute", "SELECT", query)
-            columns = ["id", "event", "event_detail", "response", "exit_code"]
-            result = [dict(zip(columns, row))
-                      for row in output]
+            if reverse:
+                if op_sys:
+                    query = ("SELECT c.id, c.event, c.event_detail, c.response, c.exit_code FROM CommandHistory as c "
+                             "INNER JOIN BotAgents AS b on c.id = b.id WHERE b.os = ? AND "
+                             "NOT EXISTS(SELECT null FROM temp WHERE temp.id = c.id)")
+                    params = (op_sys,)
+                else:
+                    query = ("SELECT c.id, c.event, c.event_detail, c.response, c.exit_code FROM CommandHistory as c "
+                             "WHERE NOT EXISTS(SELECT null FROM temp WHERE temp.id = c.id)")
+                    params = ()
+            else:
+                if op_sys:
+                    query = ("SELECT c.id ,c.event , c.event_detail, c.response, c.exit_code FROM CommandHistory AS c "
+                             "INNER JOIN temp ON temp.id = c.id WHERE b.os = ?")
+                    params = (op_sys,)
+                else:
+                    query = ("SELECT c.id ,c.event , c.event_detail, c.response, c.exit_code FROM CommandHistory AS c "
+                             "INNER JOIN temp ON temp.id = c.id")
+                    params = ()
         else:
-            result = 0
+            if op_sys:
+                query = ("SELECT c.id, c.event, c.event_detail, c.response, c.exit_code FROM CommandHistory AS c"
+                         " INNER JOIN BotAgents AS b ON c.id = b.id WHERE b.os = ?")
+                params = (op_sys,)
+            else:
+                query = "SELECT id, event, event_detail, response, exit_code FROM CommandHistory"
+                params = ()
+        output = self.query_wrapper("execute", "SELECT", query, params=params)
+        columns = ["id", "event", "event_detail", "response", "exit_code"]
+        result = [dict(zip(columns, row))
+                  for row in output]
         return result
+
+    def agent_history(self, uid, op_sys=""):
+        if op_sys:
+            query = ("SELECT c.id, c.event, c.event_detail, c.response, c.exit_code FROM CommandHistory AS c"
+                     " INNER JOIN BotAgents AS b ON c.id = b.id WHERE c.id = ? AND b.os = ?")
+            params = (uid, op_sys)
+        else:
+            query = "SELECT id, event, event_detail, response, exit_code FROM CommandHistory WHERE id = ?"
+            params = (uid,)
+        output = self.query_wrapper("execute", "SELECT", query, params)
+        return output
 
     def get_last_row_id(self):
         query = "SELECT count FROM CommandHistory ORDER BY count DESC LIMIT 1"

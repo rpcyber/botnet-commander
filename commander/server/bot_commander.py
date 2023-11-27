@@ -297,11 +297,15 @@ class BotCommander:
                 return self.db.list_agents(op_sys)
 
     def history_agents(self, entity, status, op_sys):
-        if status:
-            d = {"online": False, "offline": True, "": ""}
-            reverse = d.get(status)
-            if entity == "*":
-                uid_list = list(self.uuids.keys())
-                return self.db.agents_history(uid_list, reverse, op_sys)
+        d = {"online": False, "offline": True, "": ""}
+        reverse = d.get(status)
+        if entity == "*":
+            uid_list = list(self.uuids.keys())
+            return self.db.agents_history(uid_list, reverse, op_sys)
+        else:
+            if status == "online" and entity not in self.uuids:
+                return []
+            elif status == "offline" and entity in self.uuids:
+                return []
             else:
-                pass
+                return self.db.agent_history(entity, op_sys)
