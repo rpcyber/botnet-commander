@@ -249,12 +249,12 @@ class BotCommander:
             case "online":
                 count_by_os = {
                     False: len(self.uuids),
-                    True: sum(uuid for uuid in self.uuids if uuid["os"] == op_sys)
+                    True: sum(uuid for uuid in self.uuids if self.uuids.get(uuid).get("os") == op_sys)
                 }
             case "offline":
                 count_by_os = {
                     False: self.db.count_agents() - len(self.uuids),
-                    True: self.db.count_agents(op_sys) - sum(uuid for uuid in self.uuids if uuid["os"] == op_sys)
+                    True: self.db.count_agents(op_sys) - sum(uuid for uuid in self.uuids if self.uuids.get(uuid).get("os") == op_sys)
                 }
             case _:
                 count_by_os = {
