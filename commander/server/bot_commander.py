@@ -16,6 +16,7 @@ class BotCommander:
         self.cmd_tout = cmd_tout
         self.offline_tout = offline_tout
         self.sock = socket(AF_INET, SOCK_STREAM)
+        self.result_list = None
 
     def __get_target_list(self, cmd_filter):
         active_agents = [uid for uid in self.uuids if self.uuids[uid].get("writer")]
@@ -27,24 +28,15 @@ class BotCommander:
             return target_list
         return active_agents
 
-    async def __schedule_command(self, command, cmd_filter, *args):
-        self.target_list = self.__get_target_list(cmd_filter)
-        json_dict = self.__json_builder(command, *args)
-        index_offset = self.db.get_last_row_id() + 1
-        self.db.add_agent_events(self.target_list, command, json_dict.get("command"))
-        self.success_list = []
-        for index, uuid in enumerate(self.target_list):
-            json_dict["cmd_id"] = index + index_offset
-            await asyncio.wait_for(self.__send_cmd_to_bot_agent(uuid, json_serialize(json_dict)), timeout=60)
-
-    async def __send_cmd_to_bot_agent(self, uuid, payload):
+    async def __write_to_agent_socket(self, uuid, payload):
         try:
             self.logger.debug(f'Sending payload {payload} to bot-agent {uuid}')
             self.uuids[uuid]["writer"].write(payload)
-            self.success_list.append(uuid)
+            self.result_list.append({uuid: "success"})
         except Exception as err:
             self.logger.error(f'Unexpected exception when writing stream {payload.decode("utf-8")} to bot-agent'
                               f' {self.uuids.get(uuid)} - {err}', exc_info=True)
+            self.result_list.append({uuid: f"failed: {err}"})
 
     async def __read_line(self, reader, addr):
         try:
@@ -309,3 +301,26 @@ class BotCommander:
                 return []
             else:
                 return self.db.agent_history(entity, op_sys)
+
+    async def send_command(self, entity, command, op_sys):
+        if entity == "*":
+            if op_sys:
+                target_list = []
+                for uid, d in self.uuids.items():
+                    if d.get("os") == op_sys:
+                        target_list.append(uid)
+            else:
+                target_list = list(self.uuids.keys())
+        else:
+            if entity not in self.uuids or self.uuids.get(entity).get("os") != op_sys:
+                target_list = []
+            else:
+                target_list = [entity]
+        json_dict = self.__json_builder("exeCommand", command)
+        index_offset = self.db.get_last_row_id() + 1
+        self.db.add_agent_events(target_list, command, json_dict.get("command"))
+        self.result_list = []
+        for index, uuid in enumerate(target_list):
+            json_dict["cmd_id"] = index + index_offset
+            await asyncio.wait_for(self.__write_to_agent_socket(uuid, json_serialize(json_dict)), timeout=60)
+        return self.result_list

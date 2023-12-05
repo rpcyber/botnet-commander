@@ -1,4 +1,5 @@
 from typing import Optional
+from pydantic import BaseModel
 from fastapi import Depends, APIRouter, HTTPException, Query
 
 from commander.helpers.api_messages import INVALID_STATUS, INVALID_OS, INVALID_ENTITY
@@ -13,6 +14,10 @@ pki_init(BASE_PATH)
 bot_server = BotCommander(HOST, PORT, BASE_PATH, OFFLINE_TOUT, CMD_TOUT, RESP_WAIT_WINDOW)
 
 router = APIRouter()
+
+
+class Command(BaseModel):
+    cmd: str
 
 
 def validate_filter(status, os):
@@ -47,6 +52,13 @@ def history_agents(entity: str, status: Optional[str] = "", os: Optional[str] = 
     validate_filter(status, os)
     validate_entity(entity)
     return bot_server.history_agents(entity, status, os)
+
+
+@router.post("/agents/{entity}/cmd", status_code=200)
+def send_command(entity: str, command: Command, os: Optional[str] = ""):
+    validate_filter("", os)
+    validate_entity(entity)
+    return bot_server.send_command(entity, command.cmd, os)
 
 
 api = CommanderApi(API_HOST, API_PORT, API_PREFIX, API_LOG_LEVEL, BASE_PATH, router)
