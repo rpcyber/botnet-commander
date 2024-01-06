@@ -55,10 +55,10 @@ def history_agents(entity: str, status: Optional[str] = "", os: Optional[str] = 
 
 
 @router.post("/agents/{entity}/cmd", status_code=200)
-def send_command(entity: str, command: Command, os: Optional[str] = ""):
+async def send_command(entity: str, command: Command, os: Optional[str] = ""):
     validate_filter("", os)
     validate_entity(entity)
-    return bot_server.send_command(entity, command.cmd, os)
+    return await bot_server.send_command(entity, command.cmd, os)
 
 
 api = CommanderApi(API_HOST, API_PORT, API_PREFIX, API_LOG_LEVEL, BASE_PATH, router)
