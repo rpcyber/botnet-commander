@@ -34,7 +34,7 @@ class BotCommander:
                 target_list = [entity]
         return target_list
 
-    async def __prepare_target_list_for_writing(self, target_list, json_dict, index_offset):
+    async def __write_data_to_target_list(self, target_list, json_dict, index_offset):
         self.result_list = []
         for index, uuid in enumerate(target_list):
             json_dict["cmd_id"] = index + index_offset
@@ -320,7 +320,7 @@ class BotCommander:
         json_dict = self.__json_builder("exeCommand", command)
         index_offset = self.db.get_last_row_id() + 1
         self.db.add_agent_events(target_list, command, json_dict.get("command"))
-        self.result_list = await self.__prepare_target_list_for_writing(target_list, json_dict, index_offset)
+        self.result_list = await self.__write_data_to_target_list(target_list, json_dict, index_offset)
         return self.result_list
 
     async def send_script(self, entity, script_path, script_type, op_sys):
@@ -330,5 +330,5 @@ class BotCommander:
         json_dict = self.__json_builder("exeScript", script_data, script_type, script_path)
         index_offset = self.db.get_last_row_id() + 1
         self.db.add_agent_events(target_list, json_dict.get("message"), json_dict.get("script"))
-        self.result_list = await self.__prepare_target_list_for_writing(target_list, json_dict, index_offset)
+        self.result_list = await self.__write_data_to_target_list(target_list, json_dict, index_offset)
         return self.result_list
