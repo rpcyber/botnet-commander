@@ -18,15 +18,28 @@ class BotCommander:
         self.sock = socket(AF_INET, SOCK_STREAM)
         self.result_list = None
 
-    def __get_target_list(self, cmd_filter):
-        active_agents = [uid for uid in self.uuids if self.uuids[uid].get("writer")]
-        if cmd_filter:
-            target_list = []
-            for agent_id in active_agents:
-                if self.uuids[agent_id].get("os") == cmd_filter:
-                    target_list.append(agent_id)
-            return target_list
-        return active_agents
+    def __get_target_list(self, entity, op_sys):
+        if entity == "*":
+            if op_sys:
+                target_list = []
+                for uid, d in self.uuids.items():
+                    if d.get("os") == op_sys:
+                        target_list.append(uid)
+            else:
+                target_list = list(self.uuids.keys())
+        else:
+            if entity not in self.uuids or (op_sys and self.uuids.get(entity).get("os") != op_sys):
+                target_list = []
+            else:
+                target_list = [entity]
+        return target_list
+
+    async def __prepare_target_list_for_writing(self, target_list, json_dict, index_offset):
+        self.result_list = []
+        for index, uuid in enumerate(target_list):
+            json_dict["cmd_id"] = index + index_offset
+            await asyncio.wait_for(self.__write_to_agent_socket(uuid, json_serialize(json_dict)), timeout=60)
+        return self.result_list
 
     async def __write_to_agent_socket(self, uuid, payload):
         try:
@@ -303,24 +316,19 @@ class BotCommander:
                 return self.db.agent_history(entity, op_sys)
 
     async def send_command(self, entity, command, op_sys):
-        if entity == "*":
-            if op_sys:
-                target_list = []
-                for uid, d in self.uuids.items():
-                    if d.get("os") == op_sys:
-                        target_list.append(uid)
-            else:
-                target_list = list(self.uuids.keys())
-        else:
-            if entity not in self.uuids or self.uuids.get(entity).get("os") != op_sys:
-                target_list = []
-            else:
-                target_list = [entity]
+        target_list = self.__get_target_list(entity, op_sys)
         json_dict = self.__json_builder("exeCommand", command)
         index_offset = self.db.get_last_row_id() + 1
         self.db.add_agent_events(target_list, command, json_dict.get("command"))
-        self.result_list = []
-        for index, uuid in enumerate(target_list):
-            json_dict["cmd_id"] = index + index_offset
-            await asyncio.wait_for(self.__write_to_agent_socket(uuid, json_serialize(json_dict)), timeout=60)
+        self.result_list = await self.__prepare_target_list_for_writing(target_list, json_dict, index_offset)
+        return self.result_list
+
+    async def send_script(self, entity, script_path, script_type, op_sys):
+        target_list = self.__get_target_list(entity, op_sys)
+        with open(script_path, 'r') as fh:
+            script_data = fh.read()
+        json_dict = self.__json_builder("exeScript", script_data, script_type, script_path)
+        index_offset = self.db.get_last_row_id() + 1
+        self.db.add_agent_events(target_list, json_dict.get("message"), json_dict.get("script"))
+        self.result_list = await self.__prepare_target_list_for_writing(target_list, json_dict, index_offset)
         return self.result_list
