@@ -278,8 +278,9 @@ class BotCommander:
                         resp_list.append(tmp)
                 return resp_list
             else:
-                if not op_sys or self.uuids.get(entity).get("os") == op_sys:
+                if entity in self.uuids and (not op_sys or self.uuids.get(entity).get("os") == op_sys):
                     d = self.uuids.get(entity)
+                    self.logger.info(f"UUIDs: {self.uuids}, entity: {entity}, d={self.uuids.get(entity)}")
                     return {"id": entity, "hostname": d.get("hostname"), "addr": d.get("addr"), "os": d.get("os")}
                 else:
                     return {}
@@ -294,7 +295,7 @@ class BotCommander:
             elif entity in self.uuids:
                 return {}
             else:
-                self.db.list_agents(op_sys, entity)
+                return self.db.list_agents(op_sys, entity)
         else:
             if entity != "*":
                 return self.db.list_agents(op_sys, entity)
