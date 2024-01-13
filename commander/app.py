@@ -86,4 +86,11 @@ async def send_script(entity: str, script: Script, os: Optional[str] = ""):
     validate_path(s_path)
     return await bot_server.send_script(entity, s_path, s_type, os)
 
+
+@router.delete("/agents/{entity}/delete", status_code=200)
+async def delete_agents(entity: str, os: Optional[str] = ""):
+    validate_filter("", os)
+    validate_entity(entity)
+    return await bot_server.delete_agents(entity, os)
+
 api = CommanderApi(API_HOST, API_PORT, API_PREFIX, API_LOG_LEVEL, BASE_PATH, router)

@@ -278,9 +278,8 @@ class BotCommander:
                         resp_list.append(tmp)
                 return resp_list
             else:
-                if entity in self.uuids and (not op_sys or self.uuids.get(entity).get("os") == op_sys):
-                    d = self.uuids.get(entity)
-                    self.logger.info(f"UUIDs: {self.uuids}, entity: {entity}, d={self.uuids.get(entity)}")
+                d = self.uuids.get(entity)
+                if d and (not op_sys or d.get("os") == op_sys):
                     return {"id": entity, "hostname": d.get("hostname"), "addr": d.get("addr"), "os": d.get("os")}
                 else:
                     return {}
@@ -333,3 +332,6 @@ class BotCommander:
         self.db.add_agent_events(target_list, json_dict.get("message"), json_dict.get("script"))
         self.result_list = await self.__write_data_to_target_list(target_list, json_dict, index_offset)
         return self.result_list
+
+    async def delete_agents(self, entity, op_sys):
+        return self.db.delete_agents(entity, op_sys)

@@ -49,6 +49,7 @@ class CommanderDatabase:
             con.commit()
         match sql_type:
             case "INSERT" | "UPDATE" | "DELETE":
+                cur.fetchall()
                 output = cur.rowcount
             case "SELECT":
                 output = cur.fetchall()
@@ -152,6 +153,34 @@ class CommanderDatabase:
             params = (uid,)
         output = self.query_wrapper("execute", "SELECT", query, params)
         return output
+
+    def delete_agents(self, entity, op_sys):
+        if entity == "*":
+            if op_sys:
+                select_ids = "SELECT id FROM BotAgents WHERE os = ?"
+                query_agents = "DELETE FROM BotAgents WHERE os = ?"
+                query_history = "DELETE FROM CommandHistory WHERE os = ?"
+                params = (op_sys,)
+            else:
+                select_ids = "SELECT id FROM BotAgents"
+                query_agents = "DELETE FROM BotAgents"
+                query_history = "DELETE FROM CommandHistory"
+                params = ()
+        else:
+            if op_sys:
+                select_ids = "SELECT id FROM BotAgents WHERE os = ? AND id = ?"
+                query_agents = "DELETE FROM BotAgents WHERE os = ? AND id = ?"
+                query_history = "DELETE FROM CommandHistory WHERE os = ? AND id = ?"
+                params = (op_sys, entity)
+            else:
+                select_ids = "SELECT id FROM BotAgents WHERE id = ?"
+                query_agents = "DELETE FROM BotAgents WHERE id = ?"
+                query_history = "DELETE FROM CommandHistory WHERE id = ?"
+                params = (entity,)
+        deleted_agents = self.query_wrapper("execute", "SELECT", select_ids, params)
+        self.query_wrapper("execute", "DELETE", query_agents, params)
+        self.query_wrapper("execute", "DELETE", query_history, params)
+        return dict.fromkeys(deleted_agents, "success")
 
     def get_last_row_id(self):
         query = "SELECT count FROM CommandHistory ORDER BY count DESC LIMIT 1"
