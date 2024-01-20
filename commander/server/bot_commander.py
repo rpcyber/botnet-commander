@@ -335,3 +335,10 @@ class BotCommander:
 
     async def delete_agents(self, entity, op_sys):
         return self.db.delete_agents(entity, op_sys)
+
+    async def get_timeout(self):
+        return self.cmd_tout
+
+    async def set_timeout(self, new_value):
+        self.cmd_tout = new_value
+        return {"timeout set": "success"}

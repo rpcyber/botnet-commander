@@ -2,7 +2,8 @@ from typing import Optional
 from pydantic import BaseModel
 from fastapi import Depends, APIRouter, HTTPException, Query
 
-from commander.helpers.api_messages import INVALID_STATUS, INVALID_OS, INVALID_ENTITY, INVALID_TYPE, INVALID_PATH
+from commander.helpers.api_messages import (INVALID_STATUS, INVALID_OS, INVALID_ENTITY, INVALID_TYPE, INVALID_PATH,
+                                            INVALID_TIMEOUT)
 from commander.helpers.helper import is_uuid, check_if_path_is_valid
 from commander.pki.pki_init import pki_init
 from commander.api.api import CommanderApi
@@ -49,6 +50,11 @@ def validate_path(s_path):
         raise HTTPException(status_code=400, detail=INVALID_PATH)
 
 
+def validate_timeout(timeout):
+    if timeout < 1 or timeout > 86400:
+        raise HTTPException(status_code=400, detail=INVALID_TIMEOUT)
+
+
 @router.get("/agents/count", status_code=200)
 def count_agents(status: Optional[str] = "", os: Optional[str] = ""):
     validate_filter(status, os)
@@ -92,5 +98,17 @@ async def delete_agents(entity: str, os: Optional[str] = ""):
     validate_filter("", os)
     validate_entity(entity)
     return await bot_server.delete_agents(entity, os)
+
+
+@router.get("/timeout", status_code=200)
+async def get_timeout():
+    return await bot_server.get_timeout()
+
+
+@router.put("/timeout", status_code=200)
+async def get_timeout(timeout: int):
+    validate_timeout(timeout)
+    return await bot_server.set_timeout(timeout)
+
 
 api = CommanderApi(API_HOST, API_PORT, API_PREFIX, API_LOG_LEVEL, BASE_PATH, router)
