@@ -157,29 +157,33 @@ class CommanderDatabase:
     def delete_agents(self, entity, op_sys):
         if entity == "*":
             if op_sys:
-                select_ids = "SELECT id FROM BotAgents WHERE os = ?"
+                ids_to_delete = "SELECT id FROM BotAgents WHERE os = ?"
                 query_agents = "DELETE FROM BotAgents WHERE os = ?"
                 params = (op_sys,)
             else:
-                select_ids = "SELECT id FROM BotAgents"
+                ids_to_delete = "SELECT id FROM BotAgents"
                 query_agents = "DELETE FROM BotAgents"
                 params = ()
         else:
             if op_sys:
-                select_ids = "SELECT id FROM BotAgents WHERE os = ? AND id = ?"
+                ids_to_delete = "SELECT id FROM BotAgents WHERE os = ? AND id = ?"
                 query_agents = "DELETE FROM BotAgents WHERE os = ? AND id = ?"
                 params = (op_sys, entity)
             else:
-                select_ids = "SELECT id FROM BotAgents WHERE id = ?"
+                ids_to_delete = "SELECT id FROM BotAgents WHERE id = ?"
                 query_agents = "DELETE FROM BotAgents WHERE id = ?"
                 params = (entity,)
-        query_history = "DELETE FROM CommandHistory WHERE id IN (?)"
-        deleted_agents = self.query_wrapper("execute", "SELECT", select_ids, params)
+        query_history = f"DELETE FROM CommandHistory WHERE id IN ({ids_to_delete})"
+        deleted_agents = self.query_wrapper("execute", "SELECT", ids_to_delete, params)
+        self.query_wrapper("execute", "DELETE", query_history, params)
+        self.query_wrapper("execute", "DELETE", query_agents, params)
+        cleanup_rogue_agents = '''
+        DELETE FROM CommandHistory WHERE id IN
+        (SELECT c.id FROM CommandHistory c FULL JOIN BotAgents b ON b.id != c.id)
+        '''
+        self.query_wrapper("execute", "DELETE", cleanup_rogue_agents)
         result = [dict.fromkeys(item, "success")
                   for item in deleted_agents]
-        self.query_wrapper("execute", "DELETE", query_agents, params)
-        self.logger.info(tuple(list(result)))
-        self.query_wrapper("execute", "DELETE", query_history, (list(result),))
         return result
 
     def get_last_row_id(self):
