@@ -221,7 +221,8 @@ class CommanderDatabase:
         rows_affected = self.query_wrapper("executemany", "INSERT", query, params=data)
         self.logger.debug(f"Events have been added for agents. Rows affected: {rows_affected}")
         self.logger.info(f"There are {rows_affected} pending responses. Starting check if pending task")
-        self._start_check_pending_task()
+        if self.check_pending_task.cancelled():
+            self._start_check_pending_task()
 
     def add_event_responses(self):
         query = "UPDATE CommandHistory SET (response, exit_code) = (?, ?) WHERE count = ?"
@@ -238,5 +239,5 @@ class CommanderDatabase:
             if self.bulk_response and result[0]:
                 self.add_event_responses()
             else:
-                self.logger.info(f"There are no pending requests waiting for agents response. Canceling task")
+                self.logger.info("There are no pending requests waiting for agents response. Canceling task")
                 self.check_pending_task.cancel()
