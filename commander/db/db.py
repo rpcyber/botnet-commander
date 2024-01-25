@@ -65,7 +65,7 @@ class CommanderDatabase:
             CREATE TABLE IF NOT EXISTS BotAgents
             (id TEXT PRIMARY KEY, hostname TEXT, address TEXT, os TEXT);
             CREATE TABLE IF NOT EXISTS CommandHistory
-            (count INTEGER PRIMARY KEY AUTOINCREMENT, time TEXT, id TEXT, event TEXT, event_detail TEXT, response TEXT,
+            (count INTEGER PRIMARY KEY, time TEXT, id TEXT, event TEXT, event_detail TEXT, response TEXT,
              exit_code TEXT, FOREIGN KEY (id) REFERENCES BotAgents (id));
             ''')
         self.query_wrapper("executescript", "CREATE", query)
@@ -227,6 +227,7 @@ class CommanderDatabase:
     def add_event_responses(self):
         query = "UPDATE CommandHistory SET (response, exit_code) = (?, ?) WHERE count = ?"
         rows_affected = self.query_wrapper("executemany", "UPDATE", query, params=self.bulk_response)
+        self.logger.info(f"Bulk response is {self.bulk_response}")
         self.logger.debug(f"Event responses have been added to DB, number of rows updated: {rows_affected}")
         self.bulk_response = []
 
