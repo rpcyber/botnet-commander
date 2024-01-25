@@ -227,7 +227,6 @@ class CommanderDatabase:
     def add_event_responses(self):
         query = "UPDATE CommandHistory SET (response, exit_code) = (?, ?) WHERE count = ?"
         rows_affected = self.query_wrapper("executemany", "UPDATE", query, params=self.bulk_response)
-        self.logger.info(f"Bulk response is {self.bulk_response}")
         self.logger.debug(f"Event responses have been added to DB, number of rows updated: {rows_affected}")
         self.bulk_response = []
 
@@ -236,7 +235,10 @@ class CommanderDatabase:
             await asyncio.sleep(self.resp_wait_window)
             query = 'SELECT EXISTS(SELECT 1 FROM CommandHistory WHERE response is null)'
             output = self.query_wrapper("execute", "SELECT", query)
+            self.logger.info(f"Output of query is {output}")
             result = [x[0] for x in output]
+            self.logger.info(f"Result of query is {result}")
+            self.logger.info(f"Len of bulk is {len(self.bulk_response)}")
             if self.bulk_response and result[0]:
                 self.add_event_responses()
             else:
