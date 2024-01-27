@@ -1,8 +1,40 @@
 import os
 import json
 import logging
+import configparser
+from uuid import UUID
+from pathlib import Path
+
 
 logger = logging.getLogger(__name__)
+
+
+def load_conf():
+    config_parser = configparser.ConfigParser()
+    cwd_path = Path(__file__)
+    root_dir = cwd_path.parent.absolute()
+    try:
+        config_path = os.path.join(root_dir, "../cfg/commander.ini")
+        config_parser.read(config_path)
+        host = config_parser.get("CORE", "HOST")
+        port = int(config_parser.get("CORE", "PORT"))
+        log_level = int(config_parser.get("CORE", "LOG_LEVEL"))
+        base_path = config_parser.get("CORE", "BASE_PATH")
+        log_name = config_parser.get("CORE", "LOG_NAME")
+        offline_tout = int(config_parser.get("CORE", "OFFLINE_TOUT"))
+        cmd_tout = int(config_parser.get("CORE", "CMD_TOUT"))
+        resp_wait_window = int(config_parser.get("DB", "RESP_WAIT_WINDOW"))
+        api_host = config_parser.get("API", "HOST")
+        api_port = int(config_parser.get("API", "PORT"))
+        api_prefix = config_parser.get("API", "PREFIX")
+        api_log_level = config_parser.get("API", "LOG_LEVEL")
+
+    except Exception as err:
+        print("Error initializing CORE, Commander not started because config file could not be loaded. Unexpected "
+              "exception occurred: {}".format(err))
+        exit(5)
+    return (host, port, log_level, base_path, log_name, offline_tout, cmd_tout, resp_wait_window, api_host,
+            api_port, api_prefix, api_log_level)
 
 
 def print_help():
@@ -82,3 +114,11 @@ def print_shell_note():
     print("NOTE: There is no validation performed by commander in regards to your command, so insert a valid "
           "one, if you insert an invalid one however you will just get the output and error for that command"
           " sent back by bot-agent, this note is just FYI.")
+
+
+def is_uuid(str_to_test, version=4):
+    try:
+        uuid_obj = UUID(str_to_test, version=version)
+    except ValueError:
+        return False
+    return str(uuid_obj) == str_to_test

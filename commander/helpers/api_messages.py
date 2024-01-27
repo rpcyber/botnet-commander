@@ -1,0 +1,6 @@
+INVALID_STATUS = "Bad filter, status can only be online or offline. Example: ?status=online"
+INVALID_OS = "Bad filter, os can only be Windows or Linux. Example: ?os=Linux"
+INVALID_ENTITY = "Bad entity provided. Expecting '*' or valid v4 UUID. Example: agents/*/list to list all agents"
+INVALID_TYPE = "Bad script type provided. Supported values: \'python\', \'sh\', \'powershell\' "
+INVALID_PATH = "Bad path provided. Commander was unable to access the script path, please provide a valid file path."
+INVALID_TIMEOUT = "Bad timeout provided. Commander accepts timedouts between 1 and 86400 seconds"
