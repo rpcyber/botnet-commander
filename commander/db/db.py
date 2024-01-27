@@ -30,7 +30,7 @@ class CommanderDatabase:
         cur.execute("pragma synchronous = normal")
         cur.execute("pragma temp_store = memory")
         cur.execute("pragma mmap_size = 30000000000")
-        self.logger.info(f"Executing query: {query}")
+        self.logger.debug(f"Executing query: {query}")
         try:
             match sql_method:
                 case "executemany":
@@ -240,7 +240,7 @@ class CommanderDatabase:
             if self.bulk_response and result[0]:
                 self.add_event_responses()
             elif result[0]:
-                self.logger.info("There are pending requests waiting for agents response. Task still running")
+                self.logger.debug("There are pending requests waiting for agents response. Task still running")
             else:
-                self.logger.info("There are no pending requests waiting for agents response. Canceling task")
+                self.logger.debug("There are no pending requests waiting for agents response. Canceling task")
                 self.check_pending_task.cancel()
