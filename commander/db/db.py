@@ -241,6 +241,8 @@ class CommanderDatabase:
             self.logger.info(f"Len of bulk is {len(self.bulk_response)}")
             if self.bulk_response and result[0]:
                 self.add_event_responses()
+            elif result[0]:
+                self.logger.info("There are pending requests waiting for agents response. Task still running")
             else:
                 self.logger.info("There are no pending requests waiting for agents response. Canceling task")
                 self.check_pending_task.cancel()
