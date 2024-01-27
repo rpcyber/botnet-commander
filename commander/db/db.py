@@ -220,7 +220,7 @@ class CommanderDatabase:
         query = "INSERT INTO CommandHistory(time, id, event, event_detail) VALUES (?, ?, ?, ?)"
         rows_affected = self.query_wrapper("executemany", "INSERT", query, params=data)
         self.logger.debug(f"Events have been added for agents. Rows affected: {rows_affected}")
-        self.logger.info(f"There are {rows_affected} pending responses. Starting check if pending task")
+        self.logger.debug(f"There are {rows_affected} pending responses. Starting check if pending task")
         if self.check_pending_task.cancelled():
             self._start_check_pending_task()
 
@@ -235,7 +235,7 @@ class CommanderDatabase:
             await asyncio.sleep(self.resp_wait_window)
             query = 'SELECT EXISTS(SELECT 1 FROM CommandHistory WHERE response is null)'
             output = self.query_wrapper("execute", "SELECT", query)
-            self.logger.info(f"Output of query is {output}")
+            self.logger.debug(f"Output of query is {output}")
             result = [x[0] for x in output]
             if self.bulk_response and result[0]:
                 self.add_event_responses()
