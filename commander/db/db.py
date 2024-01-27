@@ -237,8 +237,6 @@ class CommanderDatabase:
             output = self.query_wrapper("execute", "SELECT", query)
             self.logger.info(f"Output of query is {output}")
             result = [x[0] for x in output]
-            self.logger.info(f"Result of query is {result}")
-            self.logger.info(f"Len of bulk is {len(self.bulk_response)}")
             if self.bulk_response and result[0]:
                 self.add_event_responses()
             elif result[0]:
