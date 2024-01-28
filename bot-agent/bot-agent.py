@@ -278,7 +278,7 @@ class BotAgent:
 
     def __send_command(self, payload, json_msg):
         try:
-            print(f"Sending {payload.decode('utf-8')} from bot-agent {self.hostname} to commander")
+            print(f"Sending {payload.decode('utf-8')} from bot-agent {self.hostname}:{self.sock.getsockname()}")
             self.sock.sendall(payload)
             self.last_online = time.time()
             return True
