@@ -5,6 +5,7 @@ import json
 import time
 import shlex
 import signal
+import asyncio
 import tempfile
 import subprocess
 import configparser
@@ -30,8 +31,8 @@ def load_conf():
         recv_tout = int((config_parser.get("CORE", "RECV_TIMEOUT")))
         hello_freq = int((config_parser.get("CORE", "HELLO_FREQ")))
     except Exception as err:
-        print("Error initializing CORE, bot agent not started because config file could not be loaded. Unexpected "
-              "exception occurred: {}".format(err))
+        print(f"Error initializing CORE, bot agent not started because config file could not be loaded. Unexpected "
+              f"exception occurred: {err}")
         exit(5)
     return host, port, max_reconn, conn_buff, idle_timeout, recv_tout, hello_freq
 
@@ -50,8 +51,10 @@ class BotAgent:
         self.hello_freq = hello_freq
         self.sock = socket(AF_INET, SOCK_STREAM)
         self.reconnect_count = 0
+
+    async def run(self):
         self.__check_uuid()
-        self.__self_identify()
+        await self.__self_identify()
 
     @staticmethod
     def __os_type():
@@ -75,57 +78,57 @@ class BotAgent:
             fh.write(new_uuid)
         return new_uuid
 
-    def __tcp_handshake(self):
+    async def __tcp_handshake(self):
         try:
             self.sock.close()
             self.sock = socket(AF_INET, SOCK_STREAM)
             self.sock.connect((self.host, self.port))
             self.last_online = time.time()
         except Exception as err:
-            print("Unexpected error occurred when connecting to commander: {}".format(err))
+            print(f"Unexpected error occurred when connecting to commander: {err}")
             self.sock.close()
-            self.__reconnect()
+            await self.__reconnect()
         self.reconnect_count = 0
 
-    def __reconnect(self):
+    async def __reconnect(self):
         if self.reconnect_count < self.max_reconn:
             self.reconnect_count += 1
         time.sleep(pow(2, self.reconnect_count))
         self.sock = socket(AF_INET, SOCK_STREAM)
-        self.__tcp_handshake()
+        await self.__tcp_handshake()
 
     def __tls_handshake(self):
         pass
 
-    def __self_identify(self):
-        self.__tcp_handshake()
+    async def __self_identify(self):
+        await self.__tcp_handshake()
         self.sock.settimeout(self.recv_tout)
-        if self.__send_agent_info():
-            print("Bot-agent {}-{} has been successfully added by commander".format(self.hostname, self.uuid))
-            self.__check_for_commands()
+        if await self.__send_agent_info():
+            print(f"Bot-agent {self.hostname}-{self.uuid} has been successfully added by commander")
+            await self.__check_for_commands()
         else:
             if self.reconnect_count < self.max_reconn:
                 self.reconnect_count += 1
             time.sleep(pow(2, self.reconnect_count))
-            self.__self_identify()
+            await self.__self_identify()
 
-    def __send_agent_info(self):
+    async def __send_agent_info(self):
         payload = self.__build_json_payload("botHostInfo")
         if not payload:
-            self.__self_identify()
+            await self.__self_identify()
         try:
-            print("Sending botHostInfo from bot-agent {} to commander".format(self.hostname))
+            print(f"Sending botHostInfo from bot-agent {self.hostname} to commander")
             self.sock.sendall(payload)
         except Exception as err:
-            print("Unexpected error occurred while sending botHostInfo of peer {} to commander: {}".format(self.hostname, err))
+            print(f"Unexpected error occurred while sending botHostInfo of peer {self.hostname} to commander: {err}")
             return
         try:
             data = self.sock.recv(self.conn_buff)
         except Exception as err:
-            print("Unexpected error occurred while reading botHostInfoReply by peer {}: {}".format(self.hostname, err))
+            print(f"Unexpected error occurred while reading botHostInfoReply by peer {self.hostname}: {err}")
             return
         if data:
-            if self.__process_input_stream(data):
+            if await self.__process_input_stream(data):
                 return True
             else:
                 return
@@ -134,20 +137,20 @@ class BotAgent:
                   format(self.hostname, self.uuid))
             return
 
-    def __process_input_stream(self, data):
+    async def __process_input_stream(self, data):
         json_msg = self.__json_deserialize(data)
         if not isinstance(json_msg, dict):
             return
         msg = json_msg.get("message")
         if msg in ["botHostInfoReply", "botHelloReply"]:
-            print("Bot-agent {} received {} from commander".format(self.hostname, msg))
+            print(f"Bot-agent {self.hostname} received {msg} from commander")
             self.last_online = time.time()
         elif msg == "exeCommand":
             cmd = json_msg.get("command")
             timeout = json_msg.get("timeout")
             cmd_id = json_msg.get("cmd_id")
-            print("Bot-agent {} received {} - {} from commander".format(self.hostname, msg, cmd))
-            response, exit_code = self.__execute_command(msg, timeout, cmd)
+            print(f"Bot-agent {self.hostname} received {msg} - {cmd} from commander")
+            response, exit_code = await self.__execute_command(msg, timeout, cmd)
             if response:
                 payload = self.__build_json_payload("exeCommandReply", cmd, cmd_id, response, exit_code)
                 if not payload or not self.__send_command(payload, json_msg):
@@ -160,8 +163,8 @@ class BotAgent:
             timeout = json_msg.get("timeout")
             cmd_id = json_msg.get("cmd_id")
             script_data = json_msg.get("command")
-            print("Bot-agent {} received {} - {} from commander".format(self.hostname, msg, script_type))
-            response, exit_code = self.__execute_command(msg, timeout, script_type, script_data)
+            print(f"Bot-agent {self.hostname} received {msg} - {script_type}")
+            response, exit_code = await self.__execute_command(msg, timeout, script_type, script_data)
             if response:
                 payload = self.__build_json_payload("exeScriptReply", script, cmd_id, response, exit_code)
                 if not payload or not self.__send_command(payload, json_msg):
@@ -169,7 +172,7 @@ class BotAgent:
             else:
                 return
         else:
-            print("Bot-agent {} received an unknown message from commander: {}".format(self.hostname, msg))
+            print(f"Bot-agent {self.hostname} received an unknown message from commander: {msg}")
             return
         return True
 
@@ -178,7 +181,7 @@ class BotAgent:
         try:
             return json.loads(data.decode("utf-8"))
         except Exception as err:
-            print("Unexpected exception when deserializing message from commander: {}".format(err))
+            print(f"Unexpected exception when deserializing message from commander: {err}")
 
     def __build_json_payload(self, msg, *args):
         match msg:
@@ -198,37 +201,35 @@ class BotAgent:
         try:
             payload = (json.dumps(d) + "\n").encode("utf-8")
         except Exception as err:
-            print("Unexpected error when serializing {} json: {}. Reconnecting to commander.".format(msg, err))
+            print(f"Unexpected error when serializing {msg} json: {err}. Reconnecting to commander.")
             return
         return payload
 
-    def __check_for_commands(self):
+    async def __check_for_commands(self):
         while True:
             data = ""
             if time.time() - self.last_online > self.idle_tout:
-                # Send hello to commander so that it knows this bot-agent is still online
-                if self.__keep_alive():
-                    time.sleep(self.hello_freq)
+                if await self.__keep_alive():
+                    await asyncio.sleep(self.hello_freq)
                     continue
                 else:
-                    self.__self_identify()
+                    await self.__self_identify()
             try:
                 data = self.__read_buffer()
             except Exception as err:
-                print("Unexpected error on bot-agent {} when reading input stream from commander, error: {}".
-                      format(self.hostname, err))
-                self.__self_identify()
+                print(f"Unexpected error on bot-agent {self.hostname} when reading input stream from commander, error: {err}")
+                await self.__self_identify()
             if data:
                 for json_item in data:
-                    result = self.__process_input_stream(json_item)
+                    result = await self.__process_input_stream(json_item)
                     if result:
                         continue
                     else:
-                        self.__self_identify()
+                        await self.__self_identify()
             else:
-                time.sleep(self.hello_freq)
+                await asyncio.sleep(self.hello_freq)
 
-    def __execute_command(self, cmd_type, timeout, *args):
+    async def __execute_command(self, cmd_type, timeout, *args):
         popen_payload = []
         command = ""
         if cmd_type == "exeCommand":
@@ -237,8 +238,8 @@ class BotAgent:
                 popen_payload = shlex.split(data)
                 command = popen_payload[0]
             except Exception as err:
-                print("Unexpected exception when splitting command received from commander by bot-agent {}. Will not "
-                      "process it and just move on. Error: {}".format(self.hostname, err))
+                print(f"Unexpected exception when splitting command received from commander by bot-agent {self.hostname}"
+                      f". Will not process it and just move on. Error: {err}")
                 return False, False
         elif cmd_type == "exeScript":
             command, script_data = args
@@ -249,38 +250,40 @@ class BotAgent:
             }
             popen_payload = d.get(command)
         if not self.__which(command):
-            msg = "The command {} that commander has sent to bot-agent {} is unknown. Will not process it and just " \
-                  "move on.".format(command, self.hostname)
+            msg = (f"The command {command} that commander has sent to bot-agent {self.hostname} is unknown. Will not"
+                   f" process it and just move on.")
             print(msg)
             return msg, False
         p = Popen(popen_payload, stderr=PIPE, stdout=PIPE)
         try:
-            out, err = p.communicate(timeout=timeout)
+            loop =asyncio.get_running_loop()
+            out, err = await loop.run_in_executor(None, self.__run_process, p, timeout)
         except subprocess.TimeoutExpired:
             p.kill()
-            response = "TimeoutExpired ({} seconds) from bot-agent {} for command{}".format(timeout, self.hostname, popen_payload)
+            response = f"TimeoutExpired ({timeout} seconds) from bot-agent {self.hostname} for command {popen_payload}"
             return response, p.returncode
         if out and err:
-            response = "Output: {}, Error: {}".format(out, err)
+            response = f"Output: {out}, Error: {err}"
         elif out:
             response = out
         elif err:
             response = err
         else:
-            response = "Empty response from bot-agent {} for command {}".format(self.hostname, popen_payload)
+            response = f"Empty response from bot-agent {self.hostname} for command {popen_payload}"
         return str(response), p.returncode
+
+    @staticmethod
+    def __run_process(process, timeout):
+        return process.communicate(timeout=timeout)
 
     def __send_command(self, payload, json_msg):
         try:
-            print(
-                "Sending {} from bot-agent {} to commander".format(payload.decode("utf-8"),
-                                                                   self.hostname))
+            print(f"Sending {payload.decode('utf-8')} from bot-agent {self.hostname}:{self.sock.getsockname()}")
             self.sock.sendall(payload)
             self.last_online = time.time()
             return True
         except Exception as err:
-            print("Unexpected exception for bot-agent {} when replying to command {}: {}".format(
-                self.hostname, json_msg, err))
+            print(f"Unexpected exception for bot-agent {self.hostname} when replying to command {json_msg}: {err}")
             return
 
     @staticmethod
@@ -298,7 +301,7 @@ class BotAgent:
                 if is_exe(exe_file):
                     return exe_file
 
-    def __keep_alive(self):
+    async def __keep_alive(self):
         payload = self.__build_json_payload("botHello")
         if payload:
             try:
@@ -317,7 +320,7 @@ class BotAgent:
     def __read_buffer(self):
         buffer = self.__read_initial()
         if not buffer:
-            print("Buffer of bot-agent {} is empty".format(self.hostname))
+            print(f"Buffer of bot-agent {self.hostname} is empty")
             return False
         buffering = True
         data_list = []
@@ -365,4 +368,7 @@ class GracefulKiller:
 if __name__ == "__main__":
     killer = GracefulKiller()
     HOST, PORT, MAX_RECONN, CONN_BUFF, IDLE_TIMEOUT, RECV_TOUT, HELLO_FREQ = load_conf()
-    client = BotAgent(HOST, PORT, MAX_RECONN, IDLE_TIMEOUT, CONN_BUFF, RECV_TOUT, HELLO_FREQ)
+    bot_agent = BotAgent(HOST, PORT, MAX_RECONN, IDLE_TIMEOUT, CONN_BUFF, RECV_TOUT, HELLO_FREQ)
+    loop = asyncio.new_event_loop()
+    loop.create_task(bot_agent.run())
+    loop.run_forever()
