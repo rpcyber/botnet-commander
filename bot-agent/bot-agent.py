@@ -5,6 +5,7 @@ import json
 import time
 import shlex
 import signal
+import logging.handlers
 import asyncio
 import tempfile
 import subprocess
@@ -30,15 +31,36 @@ def load_conf():
         conn_buff = int((config_parser.get("CORE", "CONN_BUFF")))
         recv_tout = int((config_parser.get("CORE", "RECV_TIMEOUT")))
         hello_freq = int((config_parser.get("CORE", "HELLO_FREQ")))
+        base_path = (config_parser.get("CORE", "BASE_PATH"))
+        log_file = (config_parser.get("CORE", "LOG_FILE"))
+        log_level = (config_parser.get("CORE", "LOG_LEVEL"))
     except Exception as err:
         print(f"Error initializing CORE, bot agent not started because config file could not be loaded. Unexpected "
               f"exception occurred: {err}")
         exit(5)
-    return host, port, max_reconn, conn_buff, idle_timeout, recv_tout, hello_freq
+    return host, port, max_reconn, conn_buff, idle_timeout, recv_tout, hello_freq, base_path, log_file, log_level
 
+def create_bot_agent_logger(base_path, log_file, log_level):
+    formatter = logging.Formatter(fmt='%(asctime)s - %(levelname)s - %(name)s:: - %(message)s', datefmt="%Y-%m-%d %H:%M:%S")
+    handlers = [
+        logging.handlers.RotatingFileHandler(f"{base_path}/{log_file}", encoding="utf8", maxBytes=100000, backupCount=1),
+        logging.StreamHandler()
+    ]
+    logger = logging.getLogger()
+    logger.setLevel(log_level)
+    for h in handlers:
+        h.setFormatter(formatter)
+        h.setLevel(logging.DEBUG)
+        logger.addHandler(h)
 
 class BotAgent:
-    def __init__(self, host, port, max_reconn, idle_timeout, conn_buff, recv_tout, hello_freq):
+    def __init__(self, host, port, max_reconn, idle_timeout, conn_buff, recv_tout, hello_freq, base_path, log_file,
+                 log_level):
+        self.base_path=base_path
+        self.log_file=log_file
+        self.log_level=log_level
+        self.logger = logging.getLogger(__name__+"."+self.__class__.__name__)
+        self.__config_logger()
         self.host = host
         self.port = port
         self.hostname = gethostname()
@@ -51,6 +73,20 @@ class BotAgent:
         self.hello_freq = hello_freq
         self.sock = socket(AF_INET, SOCK_STREAM)
         self.reconnect_count = 0
+
+    def __config_logger(self):
+        formatter = logging.Formatter(fmt='%(asctime)s - %(levelname)s - %(name)s:: - %(message)s',
+                                      datefmt="%Y-%m-%d %H:%M:%S")
+        handlers = [
+            logging.handlers.RotatingFileHandler(f"{self.base_path}/{self.log_file}", encoding="utf8",
+                                                 maxBytes=100000, backupCount=1),
+            logging.StreamHandler()
+        ]
+        self.logger.setLevel(self.log_level)
+        for h in handlers:
+            h.setFormatter(formatter)
+            h.setLevel(logging.DEBUG)
+            self.logger.addHandler(h)
 
     async def run(self):
         self.__check_uuid()
@@ -85,7 +121,7 @@ class BotAgent:
             self.sock.connect((self.host, self.port))
             self.last_online = time.time()
         except Exception as err:
-            print(f"Unexpected error occurred when connecting to commander: {err}")
+            self.logger.error(f"Unexpected error occurred when connecting to commander: {err}")
             self.sock.close()
             await self.__reconnect()
         self.reconnect_count = 0
@@ -104,7 +140,7 @@ class BotAgent:
         await self.__tcp_handshake()
         self.sock.settimeout(self.recv_tout)
         if await self.__send_agent_info():
-            print(f"Bot-agent {self.hostname}-{self.uuid} has been successfully added by commander")
+            self.logger.info(f"Bot-agent {self.hostname}-{self.uuid} has been successfully added by commander")
             await self.__check_for_commands()
         else:
             if self.reconnect_count < self.max_reconn:
@@ -117,15 +153,15 @@ class BotAgent:
         if not payload:
             await self.__self_identify()
         try:
-            print(f"Sending botHostInfo from bot-agent {self.hostname} to commander")
+            self.logger.debug(f"Sending botHostInfo from bot-agent {self.hostname} to commander")
             self.sock.sendall(payload)
         except Exception as err:
-            print(f"Unexpected error occurred while sending botHostInfo of peer {self.hostname} to commander: {err}")
+            self.logger.error(f"Unexpected error occurred while sending botHostInfo of peer {self.hostname} to commander: {err}")
             return
         try:
             data = self.sock.recv(self.conn_buff)
         except Exception as err:
-            print(f"Unexpected error occurred while reading botHostInfoReply by peer {self.hostname}: {err}")
+            self.logger.error(f"Unexpected error occurred while reading botHostInfoReply by peer {self.hostname}: {err}")
             return
         if data:
             if await self.__process_input_stream(data):
@@ -133,7 +169,7 @@ class BotAgent:
             else:
                 return
         else:
-            print("Received EOF or empty response by peer {}-{} from commander instead of botHostInfoReply".
+            self.logger.warning("Received EOF or empty response by peer {}-{} from commander instead of botHostInfoReply".
                   format(self.hostname, self.uuid))
             return
 
@@ -143,13 +179,13 @@ class BotAgent:
             return
         msg = json_msg.get("message")
         if msg in ["botHostInfoReply", "botHelloReply"]:
-            print(f"Bot-agent {self.hostname} received {msg} from commander")
+            self.logger.debug(f"Bot-agent {self.hostname} received {msg} from commander")
             self.last_online = time.time()
         elif msg == "exeCommand":
             cmd = json_msg.get("command")
             timeout = json_msg.get("timeout")
             cmd_id = json_msg.get("cmd_id")
-            print(f"Bot-agent {self.hostname} received {msg} - {cmd} from commander")
+            self.logger.debug(f"Bot-agent {self.hostname} received {msg} - {cmd} from commander")
             response, exit_code = await self.__execute_command(msg, timeout, cmd)
             if response:
                 payload = self.__build_json_payload("exeCommandReply", cmd, cmd_id, response, exit_code)
@@ -163,7 +199,7 @@ class BotAgent:
             timeout = json_msg.get("timeout")
             cmd_id = json_msg.get("cmd_id")
             script_data = json_msg.get("command")
-            print(f"Bot-agent {self.hostname} received {msg} - {script_type}")
+            self.logger.debug(f"Bot-agent {self.hostname} received {msg} - {script_type}")
             response, exit_code = await self.__execute_command(msg, timeout, script_type, script_data)
             if response:
                 payload = self.__build_json_payload("exeScriptReply", script, cmd_id, response, exit_code)
@@ -172,16 +208,15 @@ class BotAgent:
             else:
                 return
         else:
-            print(f"Bot-agent {self.hostname} received an unknown message from commander: {msg}")
+            self.logger.warning(f"Bot-agent {self.hostname} received an unknown message from commander: {msg}")
             return
         return True
 
-    @staticmethod
-    def __json_deserialize(data):
+    def __json_deserialize(self, data):
         try:
             return json.loads(data.decode("utf-8"))
         except Exception as err:
-            print(f"Unexpected exception when deserializing message from commander: {err}")
+            self.logger.error(f"Unexpected exception when deserializing message from commander: {err}")
 
     def __build_json_payload(self, msg, *args):
         match msg:
@@ -196,12 +231,12 @@ class BotAgent:
                 s_path, cmd_id, response, exit_code = args
                 d = {"message": msg, "command": s_path, "cmd_id": cmd_id, "result": response, "exit_code": exit_code}
             case _:
-                print("Internal error, json payload to build didn't match any supported message type")
+                self.logger.error("Internal error, json payload to build didn't match any supported message type")
                 return
         try:
             payload = (json.dumps(d) + "\n").encode("utf-8")
         except Exception as err:
-            print(f"Unexpected error when serializing {msg} json: {err}. Reconnecting to commander.")
+            self.logger.error(f"Unexpected error when serializing {msg} json: {err}. Reconnecting to commander.")
             return
         return payload
 
@@ -217,7 +252,8 @@ class BotAgent:
             try:
                 data = self.__read_buffer()
             except Exception as err:
-                print(f"Unexpected error on bot-agent {self.hostname} when reading input stream from commander, error: {err}")
+                self.logger.error(f"Unexpected error on bot-agent {self.hostname} when reading input stream from"
+                                  f" commander, error: {err}")
                 await self.__self_identify()
             if data:
                 for json_item in data:
@@ -238,8 +274,8 @@ class BotAgent:
                 popen_payload = shlex.split(data)
                 command = popen_payload[0]
             except Exception as err:
-                print(f"Unexpected exception when splitting command received from commander by bot-agent {self.hostname}"
-                      f". Will not process it and just move on. Error: {err}")
+                self.logger.error(f"Unexpected exception when splitting command received from commander by bot-agent"
+                                  f" {self.hostname}. Will not process it and just move on. Error: {err}")
                 return False, False
         elif cmd_type == "exeScript":
             command, script_data = args
@@ -278,12 +314,12 @@ class BotAgent:
 
     def __send_command(self, payload, json_msg):
         try:
-            print(f"Sending {payload.decode('utf-8')} from bot-agent {self.hostname}:{self.sock.getsockname()}")
+            self.logger.debug(f"Sending {payload.decode('utf-8')} from bot-agent {self.hostname}:{self.sock.getsockname()}")
             self.sock.sendall(payload)
             self.last_online = time.time()
             return True
         except Exception as err:
-            print(f"Unexpected exception for bot-agent {self.hostname} when replying to command {json_msg}: {err}")
+            self.logger.error(f"Unexpected exception for bot-agent {self.hostname} when replying to command {json_msg}: {err}")
             return
 
     @staticmethod
@@ -305,22 +341,22 @@ class BotAgent:
         payload = self.__build_json_payload("botHello")
         if payload:
             try:
-                print("Sending botHello to Commander to maintain keepalive")
+                self.logger.debug("Sending botHello to Commander to maintain keepalive")
                 self.sock.sendall(payload)
                 self.last_online = time.time()
             except Exception as err:
-                print("Unexpected exception occurred for bot-agent {} when sending botHello to commander: {}".
+                self.logger.error("Unexpected exception occurred for bot-agent {} when sending botHello to commander: {}".
                       format(self.hostname, err))
                 return
         else:
-            print("Reconnecting")
+            self.logger.info(f"Reconnecting to bot commander {self.host}:{self.port}")
             return
         return True
 
     def __read_buffer(self):
         buffer = self.__read_initial()
         if not buffer:
-            print(f"Buffer of bot-agent {self.hostname} is empty")
+            self.logger.debug(f"Buffer of bot-agent {self.hostname} is empty")
             return False
         buffering = True
         data_list = []
@@ -342,33 +378,31 @@ class BotAgent:
         try:
             buffer = self.sock.recv(self.conn_buff)
         except TimeoutError:
-            print("Timeout of {} seconds exceeded. Bot-agent {} has not received input stream from commander".
+            self.logger.warning("Timeout of {} seconds exceeded. Bot-agent {} has not received input stream from commander".
                   format(self.recv_tout, self.hostname))
             return False
         except Exception as err:
-            print("Unexpected error on bot-agent {} when reading input stream from commander, error: {}".
+            self.logger.error("Unexpected error on bot-agent {} when reading input stream from commander, error: {}".
                   format(self.hostname, err))
             return False
         return buffer
 
-
-class GracefulKiller:
-    kill_now = False
-
-    def __init__(self):
-        signal.signal(signal.SIGINT, self.exit_gracefully)
-        signal.signal(signal.SIGTERM, self.exit_gracefully)
-
-    def exit_gracefully(self, *args):
-        self.kill_now = True
-        print("Bot-Agent is shutting down")
-        sys.exit()
-
+    async def shutdown(self, s):
+        self.logger.info(f"Received exit signal {s.name}...")
+        self.logger.info("Bot-Agent is shutting down")
+        loop.stop()
 
 if __name__ == "__main__":
-    killer = GracefulKiller()
-    HOST, PORT, MAX_RECONN, CONN_BUFF, IDLE_TIMEOUT, RECV_TOUT, HELLO_FREQ = load_conf()
-    bot_agent = BotAgent(HOST, PORT, MAX_RECONN, IDLE_TIMEOUT, CONN_BUFF, RECV_TOUT, HELLO_FREQ)
+    HOST, PORT, MAX_RECONN, CONN_BUFF, IDLE_TIMEOUT, RECV_TOUT, HELLO_FREQ, BASE_PATH, LOG_FILE, LOG_LEVEL = load_conf()
+    bot_agent = BotAgent(HOST, PORT, MAX_RECONN, IDLE_TIMEOUT, CONN_BUFF, RECV_TOUT, HELLO_FREQ, BASE_PATH, LOG_FILE,
+                         LOG_LEVEL)
     loop = asyncio.new_event_loop()
-    loop.create_task(bot_agent.run())
-    loop.run_forever()
+    signals = (signal.SIGTERM, signal.SIGINT)
+    for s in signals:
+        loop.add_signal_handler(
+            s, lambda sig=s: asyncio.create_task(bot_agent.shutdown(s)))
+    try:
+        loop.create_task(bot_agent.run())
+        loop.run_forever()
+    finally:
+        loop.close()
