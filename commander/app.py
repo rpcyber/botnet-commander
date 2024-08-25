@@ -2,13 +2,13 @@ from typing import Optional
 from pydantic import BaseModel
 from fastapi import Depends, APIRouter, HTTPException, Query
 
-from commander.helpers.api_messages import (INVALID_STATUS, INVALID_OS, INVALID_ENTITY, INVALID_TYPE, INVALID_PATH,
+from helpers.api_messages import (INVALID_STATUS, INVALID_OS, INVALID_ENTITY, INVALID_TYPE, INVALID_PATH,
                                             INVALID_TIMEOUT)
-from commander.helpers.helper import is_uuid, check_if_path_is_valid
-from commander.pki.pki_init import pki_init
-from commander.api.api import CommanderApi
-from commander.server.bot_commander import BotCommander
-from commander.helpers.commander_logger import (HOST, PORT, BASE_PATH, OFFLINE_TOUT, CMD_TOUT, RESP_WAIT_WINDOW,
+from helpers.helper import is_uuid, check_if_path_is_valid
+from pki.pki_init import pki_init
+from api.api import CommanderApi
+from server.bot_commander import BotCommander
+from helpers.commander_logger import (HOST, PORT, BASE_PATH, OFFLINE_TOUT, CMD_TOUT, RESP_WAIT_WINDOW,
                                                 API_HOST, API_PORT, API_PREFIX, API_LOG_LEVEL)
 
 pki_init(BASE_PATH)

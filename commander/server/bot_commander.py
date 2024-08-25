@@ -2,8 +2,8 @@ import asyncio
 import logging
 from socket import socket, AF_INET, SOCK_STREAM
 
-from commander.db.db import CommanderDatabase
-from commander.helpers.helper import json_serialize, json_deserialize
+from db.db import CommanderDatabase
+from helpers.helper import json_serialize, json_deserialize
 
 
 class BotCommander:
