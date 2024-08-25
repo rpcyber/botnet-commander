@@ -1,5 +1,8 @@
+import ssl
 import asyncio
 import logging
+from os import path
+from sys import exit
 from socket import socket, AF_INET, SOCK_STREAM
 
 from db.db import CommanderDatabase
@@ -10,6 +13,11 @@ class BotCommander:
     def __init__(self, host, port, base_path, offline_tout, cmd_tout, resp_wait_window):
         self.logger = logging.getLogger(__name__+"."+self.__class__.__name__)
         self.db = CommanderDatabase(base_path, resp_wait_window)
+        self.context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+        self.pki_path = f"{base_path}/pki"
+        self.cert = f"{self.pki_path}/server-cert.pem"
+        self.key = f"{self.pki_path}/server-key.pem"
+        self.__load_certs()
         self.uuids = {}
         self.host = host
         self.port = port
@@ -211,13 +219,36 @@ class BotCommander:
 
     async def __handle_agent(self, reader, writer):
         addr = writer.get_extra_info('peername')
-        self.logger.info(f"Connection accepted from peer {addr}")
+        self.logger.info(f"TCP connection established with peer {addr}")
+        if not await self.__do_handshake(writer, addr):
+            writer.close()
+            return
         agent_uuid = await self.__add_agent(reader, writer, addr)
         if not agent_uuid:
             writer.close()
             return
         asyncio.create_task(self.__communicate_with_agent(reader, writer, addr, agent_uuid))
 
+    async def __do_handshake(self, writer, addr):
+        self.logger.debug(f"Performing TLS handshake with peer {addr}")
+        try:
+            await writer.start_tls(self.context)
+        except Exception as err:
+            self.logger.error(f"Unexpected exception while doing handshake with peer {addr}: {err}")
+            return
+        return True
+    
+    def __load_certs(self):
+        if not path.isfile(self.cert) or not path.isfile(self.key):
+            self.logger.error(f"Server certificates not found in paths: {self.cert}, {self.key}. These should be automatically generated")
+            exit(1)
+        try:
+            self.context.load_cert_chain(certfile=self.cert, keyfile=self.key, password="commander-server")
+        except Exception as err:
+            self.logger.fatal(f"Unexpected error when loading server certificates to SSL contenxt: {err}")
+            exit(1)
+        self.logger.debug("Successfully loaded server certificates from pki folder")
+    
     def __close_agent_connections(self):
         for uid in self.uuids:
             if self.uuids[uid].get("writer"):
@@ -241,7 +272,7 @@ class BotCommander:
         loop.stop()
 
     async def start_listener(self):
-        bot_server = await asyncio.start_server(self.__handle_agent, self.host, self.port)
+        bot_server = await asyncio.start_server(self.__handle_agent, self.host, self.port, ssl_handshake_timeout=5000)
 
         addrs = ", ".join(str(self.sock.getsockname()) for self.sock in bot_server.sockets)
         self.logger.info(f"Server started listener on {addrs}")
