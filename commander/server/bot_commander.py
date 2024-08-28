@@ -272,7 +272,7 @@ class BotCommander:
         loop.stop()
 
     async def start_listener(self):
-        bot_server = await asyncio.start_server(self.__handle_agent, self.host, self.port, ssl_handshake_timeout=5000)
+        bot_server = await asyncio.start_server(self.__handle_agent, self.host, self.port, ssl=self.context ,ssl_handshake_timeout=10)
 
         addrs = ", ".join(str(self.sock.getsockname()) for self.sock in bot_server.sockets)
         self.logger.info(f"Server started listener on {addrs}")
