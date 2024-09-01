@@ -13,7 +13,8 @@ class BotCommander:
     def __init__(self, host, port, base_path, offline_tout, cmd_tout, resp_wait_window):
         self.logger = logging.getLogger(__name__+"."+self.__class__.__name__)
         self.db = CommanderDatabase(base_path, resp_wait_window)
-        self.context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+        # self.context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+        self.context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
         self.pki_path = f"{base_path}/pki"
         self.cert = f"{self.pki_path}/server-cert.pem"
         self.key = f"{self.pki_path}/server-key.pem"
@@ -105,12 +106,14 @@ class BotCommander:
                         self.logger.error(f"Processing input stream from bot-agent {addr}-{uuid} has failed. "
                                           f"Closing connection and setting agent to offline", exc_info=True)
                         writer.close()
+                        await writer.wait_closed()
                         del self.uuids[uuid]
                         return
             else:
                 self.logger.error(f"EOF received reading input stream from bot-agent {addr}-{uuid}. Closing"
                                   f" connection and setting agent to offline", exc_info=True)
                 writer.close()
+                await writer.wait_closed()
                 del self.uuids[uuid]
                 return
 
@@ -222,10 +225,12 @@ class BotCommander:
         self.logger.info(f"TCP connection established with peer {addr}")
         if not await self.__do_handshake(writer, addr):
             writer.close()
+            await writer.wait_closed()
             return
         agent_uuid = await self.__add_agent(reader, writer, addr)
         if not agent_uuid:
             writer.close()
+            await writer.wait_closed()
             return
         asyncio.create_task(self.__communicate_with_agent(reader, writer, addr, agent_uuid))
 
