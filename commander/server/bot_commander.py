@@ -13,8 +13,7 @@ class BotCommander:
     def __init__(self, host, port, base_path, offline_tout, cmd_tout, resp_wait_window):
         self.logger = logging.getLogger(__name__+"."+self.__class__.__name__)
         self.db = CommanderDatabase(base_path, resp_wait_window)
-        # self.context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
-        self.context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+        self.context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
         self.pki_path = f"{base_path}/pki"
         self.cert = f"{self.pki_path}/server-cert.pem"
         self.key = f"{self.pki_path}/server-key.pem"
@@ -148,7 +147,7 @@ class BotCommander:
                     self.uuids[uuid] = {"reader": reader, "writer": writer, "hostname": hostname, "os": op_sys,
                                         "addr": addr}
                     if hostname != self.db.db_agents[uuid].get("hostname") or addr[0] != self.db.db_agents[uuid].get("addr")[0]:
-                        self.logger.info(f"Agent {uuid} has changed his hostname or IP. New values for "
+                        self.logger.info(f"Agent {uuid} has changed its hostname or IP. New values for "
                                          f"hostname and IP: {hostname}:{addr[0]}")
                         self.db.db_agents[uuid]["addr"] = addr
                         self.db.db_agents[uuid]["hostname"] = hostname
@@ -222,26 +221,13 @@ class BotCommander:
 
     async def __handle_agent(self, reader, writer):
         addr = writer.get_extra_info('peername')
-        self.logger.info(f"TCP connection established with peer {addr}")
-        if not await self.__do_handshake(writer, addr):
-            writer.close()
-            await writer.wait_closed()
-            return
+        self.logger.info(f"TLS connection established with peer {addr}")
         agent_uuid = await self.__add_agent(reader, writer, addr)
         if not agent_uuid:
             writer.close()
             await writer.wait_closed()
             return
         asyncio.create_task(self.__communicate_with_agent(reader, writer, addr, agent_uuid))
-
-    async def __do_handshake(self, writer, addr):
-        self.logger.debug(f"Performing TLS handshake with peer {addr}")
-        try:
-            await writer.start_tls(self.context)
-        except Exception as err:
-            self.logger.error(f"Unexpected exception while doing handshake with peer {addr}: {err}")
-            return
-        return True
     
     def __load_certs(self):
         if not path.isfile(self.cert) or not path.isfile(self.key):

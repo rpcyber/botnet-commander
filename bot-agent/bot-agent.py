@@ -388,7 +388,7 @@ class BotAgent:
         try:
             buffer = self.ssl_sock.recv(self.conn_buff)
         except TimeoutError:
-            self.logger.warning("Timeout of {} seconds exceeded. Bot-agent {} has not received input stream from commander".
+            self.logger.info("Timeout of {} seconds exceeded. Bot-agent {} has not received input stream from commander".
                   format(self.recv_tout, self.hostname))
             return False
         except Exception as err:
