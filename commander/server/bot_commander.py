@@ -250,7 +250,7 @@ class BotCommander:
         try:
             self.context.load_cert_chain(certfile=self.cert, keyfile=self.key, password="commander-server")
         except Exception as err:
-            self.logger.fatal(f"Unexpected error when loading server certificates to SSL contenxt: {err}")
+            self.logger.fatal(f"Unexpected error when loading server certificates to SSL context: {err}")
             exit(1)
         self.logger.debug("Successfully loaded server certificates from pki folder")
     
