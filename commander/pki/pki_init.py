@@ -28,6 +28,7 @@ def pki_init(base_path):
         logger.info(f"CA files are not present in {pki_path}")
         generate_ca(pki_path, ca_fn, ca_key_fn)
     gen_api_certs(pki_path, ca_fn, ca_key_fn)
+    generate_server_certs(pki_path, ca_fn, ca_key_fn)
 
 
 def gen_api_certs(pki_path, ca_fn, ca_key_fn):
@@ -77,6 +78,57 @@ def gen_api_certs(pki_path, ca_fn, ca_key_fn):
             encoding=serialization.Encoding.PEM,
             format=serialization.PrivateFormat.TraditionalOpenSSL,
             encryption_algorithm=serialization.BestAvailableEncryption(b"commander-api")
+        ))
+
+
+def generate_server_certs(pki_path, ca_fn, ca_key_fn):
+    with open(f"{pki_path}/{ca_key_fn}", 'rb') as f:
+        pem_data = f.read()
+        ca_key = serialization.load_pem_private_key(pem_data, password=b"commander")
+
+    with open(f"{pki_path}/{ca_fn}", 'rb') as f:
+        pem_data = f.read()
+        ca = x509.load_pem_x509_certificate(pem_data)
+
+    cert_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+        backend=default_backend()
+    )
+    logger.info("Generated Commander Server key")
+    new_subject = x509.Name([
+        x509.NameAttribute(NameOID.COUNTRY_NAME, u"HQ"),
+        x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, u"Hackerland"),
+        x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"Bot-Commander"),
+        x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME, u"Commander Server"),
+    ])
+    cert = x509.CertificateBuilder().subject_name(
+        new_subject
+    ).issuer_name(
+        ca.issuer
+    ).public_key(
+        cert_key.public_key()
+    ).serial_number(
+        x509.random_serial_number()
+    ).not_valid_before(
+        datetime.datetime.utcnow()
+    ).not_valid_after(
+        datetime.datetime.utcnow() + datetime.timedelta(days=30)
+    ).add_extension(
+        x509.SubjectAlternativeName([x509.DNSName(u"localhost")]),
+        critical=False,
+    ).sign(ca_key, hashes.SHA256(), default_backend())
+
+    logger.info("Generated Commander Server certificate")
+    
+    with open(f"{pki_path}/server-cert.pem", 'wb') as f:
+        f.write(cert.public_bytes(encoding=serialization.Encoding.PEM))
+
+    with open(f"{pki_path}/server-key.pem", 'wb') as f:
+        f.write(cert_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.TraditionalOpenSSL,
+            encryption_algorithm=serialization.BestAvailableEncryption(b"commander-server")
         ))
 
 

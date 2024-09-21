@@ -1,6 +1,6 @@
 from os import path
 import logging.handlers
-from commander.helpers.helper import load_conf
+from helpers.helper import load_conf
 
 
 (HOST, PORT, LOG_LEVEL, BASE_PATH, LOG_NAME, OFFLINE_TOUT, CMD_TOUT, RESP_WAIT_WINDOW, API_HOST, API_PORT, API_PREFIX,

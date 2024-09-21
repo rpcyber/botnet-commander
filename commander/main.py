@@ -1,9 +1,8 @@
+import app
 import logging
 import signal
 import asyncio
-
-from commander import app
-import commander.helpers.commander_logger
+import helpers.commander_logger
 
 
 logger = logging.getLogger(__name__)

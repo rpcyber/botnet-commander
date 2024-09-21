@@ -1,15 +1,23 @@
+import ssl
 import asyncio
 import logging
+from os import path
+from sys import exit
 from socket import socket, AF_INET, SOCK_STREAM
 
-from commander.db.db import CommanderDatabase
-from commander.helpers.helper import json_serialize, json_deserialize
+from db.db import CommanderDatabase
+from helpers.helper import json_serialize, json_deserialize
 
 
 class BotCommander:
     def __init__(self, host, port, base_path, offline_tout, cmd_tout, resp_wait_window):
         self.logger = logging.getLogger(__name__+"."+self.__class__.__name__)
         self.db = CommanderDatabase(base_path, resp_wait_window)
+        self.context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+        self.pki_path = f"{base_path}/pki"
+        self.cert = f"{self.pki_path}/server-cert.pem"
+        self.key = f"{self.pki_path}/server-key.pem"
+        self.__load_certs()
         self.uuids = {}
         self.host = host
         self.port = port
@@ -97,12 +105,14 @@ class BotCommander:
                         self.logger.error(f"Processing input stream from bot-agent {addr}-{uuid} has failed. "
                                           f"Closing connection and setting agent to offline", exc_info=True)
                         writer.close()
+                        await writer.wait_closed()
                         del self.uuids[uuid]
                         return
             else:
                 self.logger.error(f"EOF received reading input stream from bot-agent {addr}-{uuid}. Closing"
                                   f" connection and setting agent to offline", exc_info=True)
                 writer.close()
+                await writer.wait_closed()
                 del self.uuids[uuid]
                 return
 
@@ -137,7 +147,7 @@ class BotCommander:
                     self.uuids[uuid] = {"reader": reader, "writer": writer, "hostname": hostname, "os": op_sys,
                                         "addr": addr}
                     if hostname != self.db.db_agents[uuid].get("hostname") or addr[0] != self.db.db_agents[uuid].get("addr")[0]:
-                        self.logger.info(f"Agent {uuid} has changed his hostname or IP. New values for "
+                        self.logger.info(f"Agent {uuid} has changed its hostname or IP. New values for "
                                          f"hostname and IP: {hostname}:{addr[0]}")
                         self.db.db_agents[uuid]["addr"] = addr
                         self.db.db_agents[uuid]["hostname"] = hostname
@@ -211,13 +221,25 @@ class BotCommander:
 
     async def __handle_agent(self, reader, writer):
         addr = writer.get_extra_info('peername')
-        self.logger.info(f"Connection accepted from peer {addr}")
+        self.logger.info(f"TLS connection established with peer {addr}")
         agent_uuid = await self.__add_agent(reader, writer, addr)
         if not agent_uuid:
             writer.close()
+            await writer.wait_closed()
             return
         asyncio.create_task(self.__communicate_with_agent(reader, writer, addr, agent_uuid))
-
+    
+    def __load_certs(self):
+        if not path.isfile(self.cert) or not path.isfile(self.key):
+            self.logger.error(f"Server certificates not found in paths: {self.cert}, {self.key}. These should be automatically generated")
+            exit(1)
+        try:
+            self.context.load_cert_chain(certfile=self.cert, keyfile=self.key, password="commander-server")
+        except Exception as err:
+            self.logger.fatal(f"Unexpected error when loading server certificates to SSL context: {err}")
+            exit(1)
+        self.logger.debug("Successfully loaded server certificates from pki folder")
+    
     def __close_agent_connections(self):
         for uid in self.uuids:
             if self.uuids[uid].get("writer"):
@@ -241,7 +263,7 @@ class BotCommander:
         loop.stop()
 
     async def start_listener(self):
-        bot_server = await asyncio.start_server(self.__handle_agent, self.host, self.port)
+        bot_server = await asyncio.start_server(self.__handle_agent, self.host, self.port, ssl=self.context ,ssl_handshake_timeout=10)
 
         addrs = ", ".join(str(self.sock.getsockname()) for self.sock in bot_server.sockets)
         self.logger.info(f"Server started listener on {addrs}")
