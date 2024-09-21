@@ -94,13 +94,12 @@ class BotAgent:
         self.__check_uuid()
         await self.__self_identify()
 
-    @staticmethod
-    def __os_type():
+    def __os_type(self):
         op_sys = system()
         if op_sys:
             return op_sys
         else:
-            print("Error, operating system type could not be determined, this info will be missing from commander")
+            self.logger.error("Error, operating system type could not be determined, this info will be missing from commander")
 
     def __check_uuid(self):
         self.uid_path = os.path.join(tempfile.gettempdir(), "fseventsd-uuid")
@@ -298,7 +297,7 @@ class BotAgent:
         if not self.__which(command):
             msg = (f"The command {command} that commander has sent to bot-agent {self.hostname} is unknown. Will not"
                    f" process it and just move on.")
-            print(msg)
+            self.logger.warning(msg)
             return msg, False
         p = Popen(popen_payload, stderr=PIPE, stdout=PIPE)
         try:
