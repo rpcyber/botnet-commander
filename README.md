@@ -44,4 +44,4 @@ sudo docker build -t bot-agent .
 Start 100 agents
 ```bash
 sudo ./manage_bots.sh start 1 100
-bash
+```
