@@ -16,10 +16,6 @@ logger = logging.getLogger(__name__)
 
 def pki_init(base_path):
     pki_path = f"{base_path}/pki"
-    if not os.access(base_path, os.W_OK | os.X_OK):
-        logger.error(f"Commander doesn't have permissions for {base_path}. Please ensure that Commander has write "
-                     f"and execute permissions to this folder.")
-        sys.exit(9)
     if not os.path.isdir(pki_path):
         os.mkdir(pki_path)
     ca_fn = "commander-ca.pem"
