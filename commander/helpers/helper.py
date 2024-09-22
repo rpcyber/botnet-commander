@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import logging
 import configparser
@@ -122,3 +123,19 @@ def is_uuid(str_to_test, version=4):
     except ValueError:
         return False
     return str(uuid_obj) == str_to_test
+
+def handle_paths_and_permissions(BASE_PATH):
+    if not os.path.isdir(BASE_PATH):
+        try:
+            os.mkdir(BASE_PATH)
+        except Exception as err:
+            print(f"Cannot create base directory for commander {BASE_PATH}: {err}")
+            sys.exit(9)
+    subpaths_to_check = [ "", "pki", "db"]
+    for subpath in subpaths_to_check:
+        path_to_check = f"{BASE_PATH}/{subpath}"
+        if os.path.isdir(path_to_check):
+            if not os.access(path_to_check, os.W_OK | os.X_OK):
+                print(f"User that ran commander doesn't have permissions for {path_to_check}. Please ensure that this user "
+                    f"has write and execute permissions to this folder.")
+                sys.exit(9)

@@ -60,6 +60,8 @@ class CommanderDatabase:
         return output
 
     def db_init(self):
+        if not os.path.isdir(self.db_path):
+            os.mkdir(self.db_path)
         self.logger.info("Initializing Commander database")
         query = ('''
             CREATE TABLE IF NOT EXISTS BotAgents
