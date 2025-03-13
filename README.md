@@ -1,9 +1,4 @@
-╭━━╮╱╱╱╭╮╱╱╱╱╱╱╭╮╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╭╮
-┃╭╮┃╱╱╭╯╰╮╱╱╱╱╭╯╰╮╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱┃┃
-┃╰╯╰┳━┻╮╭╋━╮╭━┻╮╭╯╭━━┳━━┳╮╭┳╮╭┳━━┳━╮╭━╯┣━━┳━╮
-┃╭━╮┃╭╮┃┃┃╭╮┫┃━┫┃╱┃╭━┫╭╮┃╰╯┃╰╯┃╭╮┃╭╮┫╭╮┃┃━┫╭╯
-┃╰━╯┃╰╯┃╰┫┃┃┃┃━┫╰╮┃╰━┫╰╯┃┃┃┃┃┃┃╭╮┃┃┃┃╰╯┃┃━┫┃
-╰━━━┻━━┻━┻╯╰┻━━┻━╯╰━━┻━━┻┻┻┻┻┻┻╯╰┻╯╰┻━━┻━━┻╯
+![alt text](image.png)
 
 ## Overview
 AsyncIO implementation of a remote administration server and client. It uses a stateless permanent TLS connection for communication and client stands by and regularly sends a hello message acting as a keep-alive for the OS to keep connection.
